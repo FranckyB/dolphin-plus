@@ -1,0 +1,13 @@
+[Unit]
+Description=Dolphin Plus file-manager requests
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.FileManager1
+ExecStart="@CMAKE_INSTALL_PREFIX@/@KDE_INSTALL_BINDIR@/dolphin-plus" --daemon --file-manager-service
+TimeoutStartSec=15
+
+[Install]
+WantedBy=graphical-session.target

@@ -618,6 +618,11 @@ endif()
 
 configure_file(local.dolphinplus.desktop.in local.dolphinplus.desktop @ONLY)
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/local.dolphinplus.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+configure_file(dolphinplus-filemanager.service.in dolphinplus-filemanager.service @ONLY)
+configure_file(dolphinplus-filemanager-dbus.service.in org.freedesktop.FileManager1.service @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/dolphinplus-filemanager.service
+          ${CMAKE_CURRENT_BINARY_DIR}/org.freedesktop.FileManager1.service
+      DESTINATION ${KDE_INSTALL_DATADIR}/dolphinplus)
 
 if(BUILD_TESTING)
     target_compile_definitions(dolphin PRIVATE BUILD_TESTING)

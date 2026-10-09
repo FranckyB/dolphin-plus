@@ -17,6 +17,7 @@ class DolphinPlusCoexistenceTest : public QObject
 private Q_SLOTS:
     void initTestCase();
     void independentInstances();
+    void optionalFileManagerService();
     void cleanupTestCase();
 
 private:
@@ -172,6 +173,46 @@ void DolphinPlusCoexistenceTest::independentInstances()
     const QDir sessionDirectory(m_directory.filePath(QStringLiteral("config/session")));
     QVERIFY(!sessionDirectory.entryList({QStringLiteral("dolphinplus*")}, QDir::Files).isEmpty());
     QVERIFY(sessionDirectory.entryList({QStringLiteral("dolphin_*")}, QDir::Files).isEmpty());
+}
+
+void DolphinPlusCoexistenceTest::optionalFileManagerService()
+{
+    const QString executable = qEnvironmentVariable("DOLPHINPLUS_TEST_EXECUTABLE", qEnvironmentVariable("DOLPHINPLUS_EXECUTABLE"));
+    const QString service = QStringLiteral("org.freedesktop.FileManager1");
+    QVERIFY(!isRegistered(service));
+    QVERIFY(start(m_plus, executable, {QStringLiteral("--new-window"), m_directory.filePath(QStringLiteral("one"))}));
+    const QString plusService = QStringLiteral("local.dolphinplus-%1").arg(m_plus.processId());
+    QTRY_VERIFY_WITH_TIMEOUT(isRegistered(plusService), 10000);
+    QVERIFY(!isRegistered(service));
+    QVERIFY(start(m_reopen, executable, {QStringLiteral("--daemon"), QStringLiteral("--file-manager-service")}));
+    QTRY_VERIFY_WITH_TIMEOUT(isRegistered(service), 10000);
+    QCOMPARE(QDBusConnection::sessionBus().interface()->servicePid(service).value(), uint(m_reopen.processId()));
+    QDBusInterface manager(service, QStringLiteral("/org/freedesktop/FileManager1"), service);
+    QVERIFY(manager.isValid());
+    const QString folder = m_directory.filePath(QStringLiteral("two"));
+    QFile selected(folder + QStringLiteral("/selected.txt"));
+    QVERIFY(selected.open(QIODevice::WriteOnly));
+    selected.close();
+    QVERIFY(manager.call(QStringLiteral("ShowItems"), QStringList{QUrl::fromLocalFile(selected.fileName()).toString()}, QString()).type()
+            != QDBusMessage::ErrorMessage);
+    QDBusInterface window(plusService, QStringLiteral("/dolphinplus/Dolphin_1"), QStringLiteral("org.kde.dolphin.MainWindow"));
+    QTRY_VERIFY(isUrlOpen(window, folder));
+    QCOMPARE(plusServices().size(), 2);
+    QVERIFY(plusServices().contains(QStringLiteral("local.dolphinplus-%1").arg(m_reopen.processId())));
+    QDBusInterface daemon(service, QStringLiteral("/MainApplication"), QStringLiteral("org.qtproject.Qt.QCoreApplication"));
+    QVERIFY2(daemon.isValid(), qPrintable(daemon.lastError().message()));
+    daemon.call(QStringLiteral("quit"));
+    QVERIFY(m_reopen.waitForFinished(10000));
+    QCOMPARE(m_reopen.exitCode(), 0);
+    QTRY_VERIFY(!isRegistered(service));
+    QVERIFY(QDBusConnection::sessionBus().registerService(service));
+    QVERIFY(start(m_reopen, executable, {QStringLiteral("--daemon"), QStringLiteral("--file-manager-service")}));
+    QVERIFY(m_reopen.waitForFinished(10000));
+    QVERIFY(m_reopen.exitCode() != 0);
+    QCOMPARE(QDBusConnection::sessionBus().interface()->serviceOwner(service).value(), QDBusConnection::sessionBus().baseService());
+    QVERIFY(QDBusConnection::sessionBus().unregisterService(service));
+    window.call(QStringLiteral("quit"));
+    QVERIFY(m_plus.waitForFinished(10000));
 }
 
 void DolphinPlusCoexistenceTest::cleanupTestCase()

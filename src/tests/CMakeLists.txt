@@ -11,6 +11,11 @@ ecm_add_test(archiveextractiontest.cpp LINK_LIBRARIES dolphinprivate dolphinstat
 
 ecm_add_test(foldercovertest.cpp LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME dolphinplusuninstalltest COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/uninstalltest.sh")
+    set_tests_properties(dolphinplusuninstalltest PROPERTIES TIMEOUT 30)
+endif()
+
 find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session)
 find_program(STOCK_DOLPHIN_EXECUTABLE dolphin)
 if(DBUS_RUN_SESSION_EXECUTABLE AND STOCK_DOLPHIN_EXECUTABLE)

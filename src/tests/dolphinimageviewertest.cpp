@@ -5,6 +5,7 @@
 #include <KActionCollection>
 #include <KConfigGroup>
 #include <KIO/ListJob>
+#include <KMessageWidget>
 #include <KParts/ReadOnlyPart>
 #include <KSharedConfig>
 
@@ -283,6 +284,9 @@ private Q_SLOTS:
         DolphinImageViewer viewer;
         viewer.setAttribute(Qt::WA_DeleteOnClose, false);
         QVERIFY(viewer.setImages({first}, first, first.adjusted(QUrl::RemoveFilename)));
+        auto *message = viewer.findChild<KMessageWidget *>(QString(), Qt::FindDirectChildrenOnly);
+        QVERIFY(message);
+        QVERIFY(message->isHidden());
         auto *next = viewer.actionCollection()->action(QStringLiteral("viewer_next"));
         auto *previous = viewer.actionCollection()->action(QStringLiteral("viewer_previous"));
         auto *nextFolder = viewer.actionCollection()->action(QStringLiteral("viewer_next_sibling"));
@@ -294,21 +298,35 @@ private Q_SLOTS:
         QVERIFY(!nextFolder->isEnabled());
         next->trigger();
         QTRY_COMPARE(viewer.currentUrl(), middleFirst);
+        QVERIFY(!message->isHidden());
+        QCOMPARE(message->messageType(), KMessageWidget::Information);
+        QCOMPARE(message->text(), QStringLiteral("Now viewing folder: folder 2"));
         next->trigger();
         QCOMPARE(viewer.currentUrl(), middleLast);
+        QVERIFY(message->isHidden());
         next->trigger();
         QTRY_COMPARE(viewer.currentUrl(), last);
+        QVERIFY(!message->isHidden());
+        QCOMPARE(message->text(), QStringLiteral("Now viewing folder: Folder 10 #%"));
         previous->trigger();
         QTRY_COMPARE(viewer.currentUrl(), middleLast);
+        QVERIFY(!message->isHidden());
+        QCOMPARE(message->text(), QStringLiteral("Now viewing folder: folder 2"));
         previousFolder->trigger();
         QTRY_COMPARE(viewer.currentUrl(), first);
+        QVERIFY(!message->isHidden());
+        QCOMPARE(message->text(), QStringLiteral("Now viewing folder: Folder 1"));
         nextFolder->trigger();
         QTRY_COMPARE(viewer.currentUrl(), middleFirst);
+        QVERIFY(!message->isHidden());
+        QCOMPARE(message->text(), QStringLiteral("Now viewing folder: folder 2"));
         nextFolder->trigger();
         QTRY_COMPARE(viewer.currentUrl(), last);
         next->trigger();
         QTRY_VERIFY(next->isEnabled());
         QCOMPARE(viewer.currentUrl(), last);
+        QVERIFY(!message->isHidden());
+        QCOMPARE(message->text(), QStringLiteral("No further sibling folder with supported images."));
         ViewerSettingsPage preferences;
         auto *actions = preferences.findChild<KActionCollection *>();
         actions->action(QStringLiteral("viewer_previous_sibling"))->setShortcuts({QKeySequence(Qt::Key_P)});

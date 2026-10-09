@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.freedesktop.FileManager1
+Exec="@CMAKE_INSTALL_PREFIX@/@KDE_INSTALL_BINDIR@/dolphin-plus" --daemon --file-manager-service
+SystemdService=dolphinplus-filemanager.service

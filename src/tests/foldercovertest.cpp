@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QEvent>
 #include <QFile>
+#include <QFutureWatcher>
 #include <QLabel>
 #include <QLineEdit>
 #include <QProcess>
@@ -218,12 +219,78 @@ private Q_SLOTS:
         updater.setVisibleIndexRange(0, 1);
         model.loadDirectory(QUrl::fromLocalFile(directory.path()));
         QTRY_COMPARE(model.count(), 1);
+        QTRY_VERIFY(m_previewJobsCreated > 0);
+        QTRY_VERIFY(updater.findChildren<QFutureWatcherBase *>().isEmpty());
         QTRY_COMPARE(QDir::cleanPath(model.data(0).value("iconName").toString()), artwork);
         QVERIFY(model.data(0).value("iconPixmap").value<QPixmap>().isNull());
         QCOMPARE(QImage(model.data(0).value("iconName").toString()).pixelColor(40, 30), QColor(Qt::blue));
-        QCOMPARE(m_previewJobsCreated, 0);
         QVERIFY(QFile::remove(artwork));
         QCOMPARE(FolderCover::usesCustomIcon(url, settings), respectCustomIcons);
+    }
+
+    void largeCustomIconDirectory_data()
+    {
+        QTest::addColumn<bool>("scroll");
+        QTest::newRow("initial-viewport") << false;
+        QTest::newRow("scroll-during-resolution") << true;
+    }
+
+    void largeCustomIconDirectory()
+    {
+        QFETCH(bool, scroll);
+        const auto previous = FolderCover::loadSettings();
+        const auto restore = qScopeGuard([previous]() {
+            FolderCover::saveSettings(previous);
+        });
+        FolderCover::saveSettings({});
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString artwork = directory.filePath(QStringLiteral(".folder.png"));
+        QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QVERIFY(image.save(artwork));
+        for (int index = 0; index < 513; ++index) {
+            const QString name = QStringLiteral("folder-%1").arg(index, 3, 10, QLatin1Char('0'));
+            QVERIFY(QDir(directory.path()).mkdir(name));
+            KConfig metadata(directory.filePath(name + QStringLiteral("/.directory")), KConfig::SimpleConfig);
+            metadata.group(QStringLiteral("Desktop Entry")).writeEntry("Icon", artwork);
+            QVERIFY(metadata.sync());
+        }
+
+        KFileItemModel model;
+        KFileItemModelRolesUpdater updater(&model);
+        updater.setPaused(true);
+        updater.setIconSize(QSize(256, 256));
+        updater.setPreviewsShown(true);
+        updater.setMaximumVisibleItems(12);
+        model.loadDirectory(QUrl::fromLocalFile(directory.path()));
+        QTRY_COMPARE(model.count(), 513);
+        updater.setVisibleIndexRange(250, 12);
+        QVERIFY(!model.data(0).contains("supportsSequencing"));
+
+        int firstResolvedIndex = -1;
+        connect(&model, &KFileItemModel::itemsChanged, &model, [&]() {
+            if (firstResolvedIndex >= 0) {
+                return;
+            }
+            for (int index = 0; index < model.count(); ++index) {
+                if (model.data(index).contains("supportsSequencing")) {
+                    firstResolvedIndex = index;
+                    break;
+                }
+            }
+        });
+        updater.setPaused(false);
+        QCOMPARE(firstResolvedIndex, -1);
+        QVERIFY(!model.data(0).contains("supportsSequencing"));
+        if (scroll) {
+            updater.setVisibleIndexRange(500, 12);
+        }
+        const int expectedIndex = scroll ? 500 : 250;
+        QTRY_COMPARE(firstResolvedIndex, expectedIndex);
+        QCOMPARE(QDir::cleanPath(model.data(expectedIndex).value("iconName").toString()), artwork);
+        QVERIFY(model.data(expectedIndex).value("iconPixmap").value<QPixmap>().isNull());
+        updater.setPaused(true);
     }
 
     void generation()

@@ -114,7 +114,55 @@ source changes introduce no new Baloo-facing API use; the fork builds with the
 host's 26.08.1 library and retains the information panel. This is a dependency
 floor, not a claim that future Dolphin versions will work with the same library.
 
+## Uninstall
+
+Use `./uninstall.sh --dry-run` to inspect the plan and `./uninstall.sh` to remove
+this checkout's per-user registration. It shares the installer's lock, checks
+exact symlink targets, and leaves unrelated files/links untouched. It verifies
+the loaded user unit's source and PID before allowing its daemon through the
+running-process check; other Dolphin Plus processes must be closed first.
+Activation/startup links are removed before the owned daemon is stopped. The
+user manager, D-Bus activation list, and desktop caches are then refreshed.
+
+The folder default is queried through GIO with a fixed output locale, avoiding
+the installed xdg-mime parser's quoted-Exec limitation. Stock Dolphin is selected
+only if this checkout owns the desktop link and the current default is Dolphin
+Plus. An unavailable stock registration blocks that operation before removal;
+choose another default first. Uninstall is repeatable but not transactional if a
+desktop-service command fails midway; the printed commands show completed steps.
+
+By default, user settings/data/cache and the entire checkout/build are retained.
+`--purge` additionally removes the fork's rc/state files, its application data
+(including bookmarks), cache directory, and `dolphinplus_*` session files. It does
+not follow application-data symlinks or remove stock settings, shared places, or
+view metadata from browsed folders. No compiler or rebuild is required.
+
+`dolphinplusuninstalltest` runs real removals in a temporary copied checkout with
+mock desktop-service tools: dry-run, ordinary/repeated removal, unrelated links
+and defaults, alternate checkout ownership, scoped purge, open GUI refusal,
+foreign loaded unit, dangling links, missing replacement, and installer lock.
+It is included in CTest and `build-and-install.sh --test`; it never unregisters
+the user's real application. The live installation is checked only with dry-run.
+
 ## Coexistence
+
+`build-and-install.sh --file-manager-service` explicitly links the private
+`org.freedesktop.FileManager1.service` into `$XDG_DATA_HOME/dbus-1/services` and
+`dolphinplus-filemanager.service` into `$XDG_CONFIG_HOME/systemd/user`, then enables
+the user unit for `graphical-session.target`. D-Bus can activate the same unit on
+demand. Both paths fall back to the standard per-user locations when unset.
+The daemon runs `dolphin-plus --daemon --file-manager-service`, refuses an occupied
+shared name, and delegates ShowItems/ShowFolders to the fork's existing handlers.
+It neither replaces nor queues behind another owner. Close stock Dolphin for the
+initial switch; its installation and settings are untouched.
+
+The installer pauses an active managed daemon before rebuilding and restarts it
+afterwards, including on failure. Unrelated service files or symlinks are refused.
+`--no-file-manager-service` disables the unit and removes only the managed links;
+it does not change MIME preferences. Ordinary installation with no prior opt-in
+does not register or start a shared handler. The coexistence test checks both the
+default isolation and opted-in routing, shutdown, and refusal to take another
+owner's shared name. Keep the staged executable available for future activation.
 
 The current staged application has:
 
@@ -130,11 +178,14 @@ The current staged application has:
    or modified. Application-data fallback paths are separate as well.
 - Private `libdolphinplusprivate` and `libdolphinplusvcs` libraries under
    `lib/dolphinplus/`, loaded through relative runtime paths.
-- No registration or queueing for `org.freedesktop.FileManager1`, no default-file-
-   manager daemon, no default MIME association changes, and no KDE telemetry submission.
+- No registration or queueing for `org.freedesktop.FileManager1` by default.
+   The explicit installer `--file-manager-service` option enables a separate daemon
+   for shared requests; normal GUI instances still do not claim that name.
+   No default MIME association changes and no KDE telemetry submission.
 
-The install manifest has seven files: executable, launcher, icon, and two private
-libraries with their major-version symlinks. Upstream SDK files, settings modules,
+The install manifest has nine files: executable, launcher, icon, two private
+libraries with their major-version symlinks, and two inactive service templates in
+`share/dolphinplus`. Upstream SDK files, settings modules,
 migration helpers, service-menu installers, item-action plugins, manuals, and
 translation catalogs are not installed over their stock equivalents. Standard
 KDE plugins and available upstream translations/manuals are reused from the host;
@@ -281,9 +332,11 @@ level, and 32 decoding attempts per cover. Each media subprocess has a
 when its view no longer needs it.
 
 An existing image referenced by `Icon` in `.directory` always takes precedence
-over generated covers. Absolute and folder-relative paths are supported. These
-folders use their native icon directly, without queuing a cover worker, scanning
-media, or creating a thumbnail cache entry.
+over generated covers. Absolute and folder-relative paths are supported. The
+custom-icon check runs in the background worker, not in a synchronous pass over
+the preview queue. These folders retain their native icon without scanning media
+or creating a thumbnail cache entry. Visible folders are resolved first, and
+scrolling cancels and reprioritizes pending work for the new viewport.
 
 **Keep existing theme-based folder icons** is enabled by default and also
 preserves named icons such as `folder-red`. Unchecking it permits generated

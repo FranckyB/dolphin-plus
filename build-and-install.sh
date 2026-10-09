@@ -8,7 +8,7 @@ fi
 
 usage() {
     printf '%s\n' \
-        'Usage: ./build-and-install.sh [--jobs N] [--test] [--dry-run]' \
+        'Usage: ./build-and-install.sh [--jobs N] [--test] [--dry-run] [--file-manager-service|--no-file-manager-service]' \
         '' \
         'Build Dolphin Plus and register the staged build for the current user.' \
         'Requires installed Qt/KDE development dependencies; never runs sudo.' \
@@ -17,8 +17,11 @@ usage() {
         '  --test     Run focused workflow tests in a disposable private session' \
         '  --dry-run  Print commands without building, installing, or registering' \
         '  --help     Show this help' \
+        '  --file-manager-service     Enable the user-session Show in Folder handler' \
+        '  --no-file-manager-service  Disable that handler and remove its user links' \
         '' \
-        'Stock Dolphin and default file associations are not changed.' \
+        'Shared file-manager handling is opt-in and requires a systemd user session.' \
+        'Stock Dolphin files and default MIME associations are not changed.' \
         'Keep this checkout in place: desktop launchers link to its staged build.'
 }
 
@@ -30,6 +33,7 @@ fail() {
 jobs=4
 run_tests=0
 dry_run=0
+service_mode=0
 while (( $# )); do
     case "$1" in
         --help|-h) usage; exit 0 ;;
@@ -41,6 +45,14 @@ while (( $# )); do
             ;;
         --test) run_tests=1 ;;
         --dry-run) dry_run=1 ;;
+        --file-manager-service)
+            (( service_mode != -1 )) || fail 'Choose only one file-manager service option.'
+            service_mode=1
+            ;;
+        --no-file-manager-service)
+            (( service_mode != 1 )) || fail 'Choose only one file-manager service option.'
+            service_mode=-1
+            ;;
         *) fail "Unknown argument: $1 (use --help)." ;;
     esac
     shift
@@ -51,6 +63,8 @@ done
 [[ -n "${HOME:-}" && "$HOME" == /* ]] || fail 'HOME must be an absolute path.'
 data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 [[ "$data_home" == /* ]] || fail 'XDG_DATA_HOME must be an absolute path.'
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+[[ "$config_home" == /* ]] || fail 'XDG_CONFIG_HOME must be an absolute path.'
 [[ -z "${DESTDIR:-}" ]] || fail 'Unset DESTDIR before this per-user installation.'
 
 for tool in cmake ninja c++ pgrep flock readlink desktop-file-validate update-desktop-database; do
@@ -76,16 +90,41 @@ destinations=(
     "$data_home/icons/hicolor/scalable/apps/local.dolphinplus.svg"
 )
 
+service_unit=dolphinplus-filemanager.service
+service_sources=("$stage/share/dolphinplus/org.freedesktop.FileManager1.service" "$stage/share/dolphinplus/$service_unit")
+service_destinations=("$data_home/dbus-1/services/org.freedesktop.FileManager1.service" "$config_home/systemd/user/$service_unit")
+manage_service=$service_mode
+for index in "${!service_sources[@]}"; do
+    if [[ -L "${service_destinations[index]}" && "$(readlink -- "${service_destinations[index]}")" == "${service_sources[index]}" ]]; then
+        if (( service_mode == 0 )); then
+            manage_service=1
+        fi
+    fi
+done
+if (( manage_service )); then
+    for tool in systemctl busctl; do
+        command -v "$tool" >/dev/null || fail "File-manager service management requires $tool."
+    done
+fi
+
+check_link() {
+    local destination=$1 source=$2
+    if [[ -L "$destination" ]]; then
+        [[ "$(readlink -- "$destination")" == "$source" ]] || fail "Refusing to replace an existing link: $destination"
+    elif [[ -e "$destination" ]]; then
+        fail "Refusing to replace an existing file: $destination"
+    fi
+}
+
 check_links() {
     for index in "${!sources[@]}"; do
-        destination=${destinations[index]}
-        if [[ -L "$destination" ]]; then
-            [[ "$(readlink -- "$destination")" == "${sources[index]}" ]] \
-                || fail "Refusing to replace an existing link: $destination"
-        elif [[ -e "$destination" ]]; then
-            fail "Refusing to replace an existing file: $destination"
-        fi
+        check_link "${destinations[index]}" "${sources[index]}"
     done
+    if (( manage_service )); then
+        for index in "${!service_sources[@]}"; do
+            check_link "${service_destinations[index]}" "${service_sources[index]}"
+        done
+    fi
 }
 
 check_stopped() {
@@ -108,10 +147,25 @@ run() {
 }
 
 check_links
+service_was_active=0
+restore_service() {
+    if (( service_was_active )); then
+        systemctl --user start "$service_unit" || printf 'Could not restart %s; run systemctl --user start %s.\n' "$service_unit" "$service_unit" >&2
+    fi
+}
 if (( !dry_run )); then
     mkdir -p -- "$build_dir"
     exec 9>"$build_dir/.build-and-install.lock"
     flock -n 9 || fail 'Another build-and-install script is already running.'
+    if (( manage_service )); then
+        systemctl --user show-environment >/dev/null || fail 'A running systemd user session is required.'
+        if systemctl --user is-active --quiet "$service_unit"; then
+            [[ -L "${service_destinations[1]}" ]] || fail "Refusing to stop an unmanaged $service_unit."
+            service_was_active=1
+            trap restore_service EXIT
+            systemctl --user stop "$service_unit"
+        fi
+    fi
     check_stopped
 fi
 
@@ -143,6 +197,7 @@ if (( run_tests )); then
     run "${test_env[@]}" dbus-run-session -- "$build_dir/bin/archiveextractiontest" -nocrashhandler
     run "${test_env[@]}" dbus-run-session -- "$build_dir/bin/dolphinmainwindowtest" testGroupFiles testCreateDirectoryFocus testFolderCovers testThumbnailAfterRename -nocrashhandler
     run ctest --test-dir "$build_dir" --output-on-failure --no-tests=error -R '^no_bare_qwait_in_tests$'
+    run ctest --test-dir "$build_dir" --output-on-failure --no-tests=error -R '^dolphinplusuninstalltest$'
     if (( have_coexistence )); then
         run "${test_env[@]}" ctest --test-dir "$build_dir" --output-on-failure --no-tests=error -R '^dolphinpluscoexistencetest$'
     fi
@@ -167,6 +222,36 @@ for index in "${!sources[@]}"; do
         run ln -sT -- "${sources[index]}" "$destination"
     fi
 done
+if (( manage_service )); then
+    if (( service_mode == -1 )); then
+        if [[ -L "${service_destinations[1]}" ]]; then
+            run systemctl --user disable "$service_unit"
+        fi
+        for destination in "${service_destinations[@]}"; do
+            if [[ -L "$destination" ]]; then
+                run rm -- "$destination"
+            fi
+        done
+        service_was_active=0
+    else
+        for index in "${!service_sources[@]}"; do
+            destination=${service_destinations[index]}
+            run mkdir -p -- "$(dirname -- "$destination")"
+            if [[ ! -L "$destination" ]]; then
+                run ln -sT -- "${service_sources[index]}" "$destination"
+            fi
+        done
+    fi
+    run systemctl --user daemon-reload
+    run busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig
+    if (( service_mode == 1 )); then
+        run systemctl --user enable --now "$service_unit"
+        service_was_active=0
+    elif (( service_was_active )); then
+        run systemctl --user start "$service_unit"
+        service_was_active=0
+    fi
+fi
 run update-desktop-database "$data_home/applications"
 if command -v kbuildsycoca6 >/dev/null; then
     run kbuildsycoca6 --noincremental
@@ -178,5 +263,10 @@ else
     printf '\nDolphin Plus is available in your application launcher.\n'
     printf 'Terminal launcher: %s\n' "${destinations[0]}"
     printf 'Keep this checkout in place: %s\n' "$repo_root"
-    printf 'Stock Dolphin and default associations were not changed.\n'
+    printf 'Stock Dolphin files and default MIME associations were not changed.\n'
+    if (( service_mode == 1 )); then
+        printf 'Dolphin Plus now handles shared Show in Folder requests.\n'
+    elif (( service_mode == -1 )); then
+        printf 'Dolphin Plus shared file-manager handling is disabled.\n'
+    fi
 fi

@@ -17,7 +17,7 @@ From a checkout on Linux, run:
 
 This builds the current source and registers **Dolphin Plus** in your application
 launcher. Run the same command after updating the source. Close Dolphin Plus
-first; stock Dolphin can stay open and remains the default file manager.
+first; stock Dolphin can stay open and existing default applications are preserved.
 The script automatically uses host tools from Flatpak VS Code terminals.
 
 ```sh
@@ -39,8 +39,57 @@ Do not run the installer as root. It builds into `build-dolphin-plus`, stages
 there, and creates user-local desktop/icon/executable links. Keep the checkout
 and its build directory in place: this is a development install, not a standalone
 package. Existing unrelated launcher files are never overwritten. The script
-does not change default applications, shell startup files, or system packages.
+does not change MIME defaults, shell startup files, or system packages. Shared
+file-manager service handling is an explicit opt-in described below.
 See [development notes](DOLPHIN-PLUS.md) for manual build steps and limitations.
+
+## Uninstall
+
+Close Dolphin Plus windows, then run:
+
+```sh
+./uninstall.sh --dry-run   # Preview without changing anything
+./uninstall.sh             # Remove desktop links and the background handler
+./uninstall.sh --purge     # Also delete Dolphin Plus settings, bookmarks, sessions, and caches
+```
+
+The script uses host tools automatically from Flatpak VS Code. It removes only
+links created for this checkout, stops its registered handler, and refreshes
+desktop caches. Stock Dolphin becomes the folder default only when this checkout
+owns the launcher and Dolphin Plus is still selected. If stock Dolphin is not
+installed, choose another default file manager before uninstalling.
+
+Settings and user data are preserved unless `--purge` is given. Source code,
+build/staging files, unrelated registrations, and metadata in browsed folders
+are always preserved. Reinstall later with `./build-and-install.sh`.
+
+## Default File Manager
+
+Choose **Dolphin Plus** in KDE's **Default Applications > File Manager** for
+ordinary folder opening. Applications such as Firefox can instead use the shared
+`org.freedesktop.FileManager1` service for **Show in Folder**. To handle those
+requests too, close Dolphin Plus and stock Dolphin, then run:
+
+```sh
+./build-and-install.sh --file-manager-service
+```
+
+This opts into a background handler for your user session and on-demand D-Bus
+activation. It requires a systemd user session and does not replace stock Dolphin
+files or settings. An already-running file manager is never forcibly displaced;
+close it before enabling, or log out and back in. The handler reuses Dolphin Plus
+windows and opens one when needed. Keep this checkout mounted and available.
+
+Subsequent ordinary builds preserve this choice and pause/restart an active
+handler around installation; close Dolphin Plus GUI windows before rebuilding.
+To disable shared-service handling and remove its user-local registration:
+
+```sh
+./build-and-install.sh --no-file-manager-service
+```
+
+This leaves your ordinary folder MIME preference unchanged. Select stock Dolphin
+in Default Applications as well if you want to revert both choices.
 
 ## Tabs and Type-to-Find
 

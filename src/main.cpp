@@ -147,6 +147,8 @@ int main(int argc, char **argv)
                                         i18nc("@info:shell", "Set up Dolphin for administrative tasks.")));
     parser.addOption(
         QCommandLineOption(QStringList() << QStringLiteral("daemon"), i18nc("@info:shell", "Start Dolphin Daemon (only required for DBus Interface).")));
+    parser.addOption(QCommandLineOption(QStringLiteral("file-manager-service"),
+                                        i18nc("@info:shell", "Handle shared file-manager requests (requires --daemon; opt-in only).")));
 #ifdef BUILD_TESTING
     {
         QCommandLineOption selfTestOption(QStringLiteral("self-test"));
@@ -157,6 +159,11 @@ int main(int argc, char **argv)
 
     parser.process(app);
     aboutData.processCommandLine(&parser);
+
+    if (parser.isSet(QStringLiteral("file-manager-service")) && !parser.isSet(QStringLiteral("daemon"))) {
+        std::cerr << "--file-manager-service requires --daemon\n";
+        return EXIT_FAILURE;
+    }
 
     const bool splitView = parser.isSet(QStringLiteral("split")) || GeneralSettings::splitView();
     const bool openFiles = parser.isSet(QStringLiteral("select"));
@@ -191,6 +198,18 @@ int main(int argc, char **argv)
 #endif
         DBusInterface interface;
         interface.setAsDaemon();
+        if (parser.isSet(QStringLiteral("file-manager-service"))) {
+            auto *bus = QDBusConnection::sessionBus().interface();
+            if (!bus
+                || bus->registerService(QStringLiteral("org.freedesktop.FileManager1"),
+                                        QDBusConnectionInterface::DontQueueService,
+                                        QDBusConnectionInterface::DontAllowReplacement)
+                        .value()
+                    != QDBusConnectionInterface::ServiceRegistered) {
+                std::cerr << "Cannot register org.freedesktop.FileManager1. Close the current file-manager service owner before enabling Dolphin Plus.\n";
+                return EXIT_FAILURE;
+            }
+        }
         return app.exec();
     }
 

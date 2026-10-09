@@ -590,7 +590,9 @@ void DolphinImageViewer::findSiblingImages(bool selectLast)
         for (const QString &name : *names) {
             images.append(QUrl::fromLocalFile(QDir(directory.toLocalFile()).filePath(name)));
         }
-        setImages(images, selectLast ? images.last() : images.first(), directory);
+        if (setImages(images, selectLast ? images.last() : images.first(), directory)) {
+            showNavigationMessage(i18nc("@info", "Now viewing folder: %1", directory.fileName()));
+        }
     });
 }
 

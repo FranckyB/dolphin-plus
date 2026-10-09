@@ -1023,7 +1023,7 @@ void KFileItemModelRolesUpdater::startPreviewJob()
         if (item.isDir()
             && (m_folderCoverSettings.mode == FolderCover::Mode::Disabled
                 || (item.isLocalFile() && m_folderCoverSettings.mode == FolderCover::Mode::SingleCover))) {
-            if (m_folderCoverSettings.mode == FolderCover::Mode::Disabled || FolderCover::usesCustomIcon(item.url(), m_folderCoverSettings)) {
+            if (m_folderCoverSettings.mode == FolderCover::Mode::Disabled) {
                 slotPreviewFailed(item);
             } else {
                 m_pendingFolderCovers.append(item);
