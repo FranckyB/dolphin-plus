@@ -24,6 +24,10 @@ ViewerSettingsPage::ViewerSettingsPage(QWidget *parent)
     m_fullscreen->setObjectName(QStringLiteral("viewer_open_fullscreen"));
     m_fullscreen->setChecked(GeneralSettings::imageViewerOpenFullscreen());
     form->addRow(m_fullscreen);
+    m_keepZoomAndPosition = new QCheckBox(i18nc("@option:check", "Keep zoom and position between images"), this);
+    m_keepZoomAndPosition->setObjectName(QStringLiteral("viewer_keep_zoom_position"));
+    m_keepZoomAndPosition->setChecked(GeneralSettings::imageViewerKeepZoomAndPosition());
+    form->addRow(m_keepZoomAndPosition);
     m_fitPolicy = new QComboBox(this);
     m_fitPolicy->setObjectName(QStringLiteral("viewer_fit_policy"));
     m_fitPolicy->addItem(i18nc("@item:inlistbox", "Fit larger images only"));
@@ -36,6 +40,7 @@ ViewerSettingsPage::ViewerSettingsPage(QWidget *parent)
     m_shortcuts = new KShortcutsEditor(m_actions, this, KShortcutsEditor::WidgetAction, KShortcutsEditor::LetterShortcutsAllowed);
     layout->addWidget(m_shortcuts);
     connect(m_fullscreen, &QCheckBox::toggled, this, &ViewerSettingsPage::changed);
+    connect(m_keepZoomAndPosition, &QCheckBox::toggled, this, &ViewerSettingsPage::changed);
     connect(m_fitPolicy, &QComboBox::currentIndexChanged, this, &ViewerSettingsPage::changed);
     connect(m_shortcuts, &KShortcutsEditor::keyChange, this, &ViewerSettingsPage::changed);
 }
@@ -48,6 +53,7 @@ ViewerSettingsPage::~ViewerSettingsPage()
 void ViewerSettingsPage::applySettings()
 {
     GeneralSettings::setImageViewerOpenFullscreen(m_fullscreen->isChecked());
+    GeneralSettings::setImageViewerKeepZoomAndPosition(m_keepZoomAndPosition->isChecked());
     GeneralSettings::setImageViewerEnlargeSmallerImages(m_fitPolicy->currentIndex() == 1);
     GeneralSettings::self()->save();
     KConfigGroup shortcuts(KSharedConfig::openConfig(QStringLiteral("dolphinplusrc")), QStringLiteral("ImageViewer Shortcuts"));
@@ -64,6 +70,7 @@ void ViewerSettingsPage::restoreDefaults()
 {
     GeneralSettings::self()->useDefaults(true);
     m_fullscreen->setChecked(GeneralSettings::imageViewerOpenFullscreen());
+    m_keepZoomAndPosition->setChecked(GeneralSettings::imageViewerKeepZoomAndPosition());
     m_fitPolicy->setCurrentIndex(GeneralSettings::imageViewerEnlargeSmallerImages() ? 1 : 0);
     GeneralSettings::self()->useDefaults(false);
     m_shortcuts->allDefault();

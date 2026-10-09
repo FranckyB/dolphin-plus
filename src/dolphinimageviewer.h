@@ -2,6 +2,7 @@
 
 #include <QCursor>
 #include <QList>
+#include <QPointF>
 #include <QPointer>
 #include <QSize>
 #include <QUrl>
@@ -90,6 +91,9 @@ private:
     ZoomMode m_zoomMode = ZoomMode::Fit;
     bool m_applyingZoom = false;
     bool m_imageLoaded = false;
+    bool m_restoreView = false;
+    qreal m_savedZoom = 1;
+    QPointF m_relativeImageCenter;
     QList<QUrl> m_images;
     qsizetype m_index = -1;
     int m_wheelDelta = 0;

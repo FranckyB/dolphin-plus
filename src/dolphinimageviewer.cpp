@@ -263,6 +263,7 @@ void DolphinImageViewer::findZoomController()
 
 void DolphinImageViewer::setZoomMode(ZoomMode mode)
 {
+    m_restoreView = false;
     m_zoomMode = mode;
     applyZoomMode();
     const QScopedValueRollback<bool> applying(m_applyingZoom, true);
@@ -271,7 +272,23 @@ void DolphinImageViewer::setZoomMode(ZoomMode mode)
 
 void DolphinImageViewer::applyZoomMode()
 {
-    if (!m_part || !m_imageLoaded || m_zoomMode == ZoomMode::Custom) {
+    if (!m_part || !m_imageLoaded) {
+        return;
+    }
+    if (m_restoreView && m_zoomController) {
+        const QScopedValueRollback<bool> applying(m_applyingZoom, true);
+        m_restoreView = false;
+        m_zoomController->setProperty("zoom", m_savedZoom);
+        if (!m_imageSize.isEmpty()) {
+            const QSizeF displayed = QSizeF(m_imageSize) * m_zoomController->property("zoom").toDouble() / m_part->widget()->devicePixelRatioF();
+            const QSizeF available = m_zoomController->size();
+            m_zoomController->setProperty("position",
+                                          QPoint(qMax(0, qRound(m_relativeImageCenter.x() * displayed.width() - available.width() / 2)),
+                                                 qMax(0, qRound(m_relativeImageCenter.y() * displayed.height() - available.height() / 2))));
+        }
+        syncZoomActions();
+    }
+    if (m_zoomMode == ZoomMode::Custom) {
         return;
     }
     {
@@ -579,8 +596,22 @@ void DolphinImageViewer::findSiblingImages(bool selectLast)
 
 void DolphinImageViewer::openCurrentImage()
 {
+    if (!GeneralSettings::imageViewerKeepZoomAndPosition()) {
+        m_zoomMode = ZoomMode::Fit;
+        m_restoreView = false;
+    } else if (m_imageLoaded && m_zoomController) {
+        m_savedZoom = m_zoomController->property("zoom").toDouble();
+        m_restoreView =
+            m_zoomMode != ZoomMode::Fit && !m_imageSize.isEmpty() && m_savedZoom > 0 && m_zoomController->metaObject()->indexOfProperty("position") >= 0;
+        if (m_restoreView) {
+            const QSizeF displayed = QSizeF(m_imageSize) * m_savedZoom / m_part->widget()->devicePixelRatioF();
+            const QSizeF available = m_zoomController->size();
+            const QPoint position = m_zoomController->property("position").toPoint();
+            m_relativeImageCenter = QPointF(displayed.width() > available.width() ? (position.x() + available.width() / 2) / displayed.width() : 0.5,
+                                            displayed.height() > available.height() ? (position.y() + available.height() / 2) / displayed.height() : 0.5);
+        }
+    }
     m_imageLoaded = m_imageLoaded && m_part->url() == currentUrl();
-    m_zoomMode = ZoomMode::Fit;
     m_imageSize = {};
     if (currentUrl().isLocalFile()) {
         QImageReader reader(currentUrl().toLocalFile());

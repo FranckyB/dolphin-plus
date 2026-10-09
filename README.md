@@ -112,6 +112,13 @@ Settings and shortcuts are saved separately from standalone Gwenview. Apply
 updates open viewers; fullscreen startup applies the next time a viewer opens.
 Cancel leaves unapplied changes unsaved, and Restore Defaults resets this page.
 
+**Keep zoom and position between images** is enabled by default. A new viewer
+starts in Fit; after that, Fit, Actual Size, or your custom zoom remains selected
+as you browse. Zoomed images retain the same relative viewing position when local
+image dimensions are available, including when the next image has a different
+size or aspect ratio. Position is limited by the new image's edges. Uncheck this
+option in Image Viewer preferences to reset every image to Fit.
+
 Actual Size and Fit are mutually exclusive modes; manual zoom can leave neither
 selected. Fit preserves aspect ratio and follows window resizing. The fit policy
 applies to local images with readable dimensions; other images retain native

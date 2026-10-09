@@ -185,6 +185,10 @@
         </entry>
     </group>
     <group name="ImageViewer">
+        <entry name="ImageViewerKeepZoomAndPosition" key="KeepZoomAndPosition" type="Bool">
+            <label>Keep zoom and position between images</label>
+            <default>true</default>
+        </entry>
         <entry name="ImageViewerOpenFullscreen" key="OpenFullscreen" type="Bool">
             <label>Open the image viewer in fullscreen</label>
             <default>false</default>

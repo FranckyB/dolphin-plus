@@ -19,6 +19,7 @@ public:
 
 private:
     QCheckBox *m_fullscreen;
+    QCheckBox *m_keepZoomAndPosition;
     QComboBox *m_fitPolicy;
     KActionCollection *m_actions;
     KShortcutsEditor *m_shortcuts;

@@ -20,6 +20,7 @@
 #include <QImage>
 #include <QImageReader>
 #include <QMimeDatabase>
+#include <QPainter>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -45,6 +46,7 @@ private Q_SLOTS:
     {
         GeneralSettings::setImageViewerOpenFullscreen(false);
         GeneralSettings::setImageViewerEnlargeSmallerImages(false);
+        GeneralSettings::setImageViewerKeepZoomAndPosition(true);
         GeneralSettings::self()->save();
         KConfigGroup shortcuts(KSharedConfig::openConfig(QStringLiteral("dolphinplusrc")), QStringLiteral("ImageViewer Shortcuts"));
         shortcuts.deleteGroup();
@@ -350,6 +352,7 @@ private Q_SLOTS:
 
     void testOverviewHiddenInFit()
     {
+        GeneralSettings::setImageViewerKeepZoomAndPosition(false);
         QTemporaryDir directory;
         const QUrl imageUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("portrait.png")));
         const QUrl nextUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("next.png")));
@@ -467,6 +470,93 @@ private Q_SLOTS:
         QVERIFY(viewport->cursor().shape() != Qt::BlankCursor);
     }
 
+    void testKeepZoomAndPosition_data()
+    {
+        QTest::addColumn<QSize>("secondSize");
+        QTest::addColumn<bool>("keepZoomAndPosition");
+        QTest::addColumn<qreal>("zoom");
+        QTest::newRow("same-size") << QSize(1600, 1200) << true << 2.0;
+        QTest::newRow("different-size") << QSize(3200, 2400) << true << 2.0;
+        QTest::newRow("portrait") << QSize(1200, 2400) << true << 2.0;
+        QTest::newRow("actual-size") << QSize(3200, 2400) << true << 1.0;
+        QTest::newRow("fit") << QSize(3200, 2400) << true << 0.0;
+        QTest::newRow("reset-to-fit") << QSize(3200, 2400) << false << 2.0;
+    }
+
+    void testKeepZoomAndPosition()
+    {
+        QFETCH(QSize, secondSize);
+        QFETCH(bool, keepZoomAndPosition);
+        QFETCH(qreal, zoom);
+        GeneralSettings::setImageViewerKeepZoomAndPosition(keepZoomAndPosition);
+        QTemporaryDir directory;
+        const QUrl first = QUrl::fromLocalFile(directory.filePath(QStringLiteral("first.png")));
+        const QUrl second = QUrl::fromLocalFile(directory.filePath(QStringLiteral("second.png")));
+        QImage image(1600, 1200, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(first.toLocalFile()));
+        image = QImage(secondSize, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        {
+            QPainter painter(&image);
+            painter.fillRect(0, qRound(secondSize.height() * 0.55), secondSize.width(), secondSize.height(), Qt::blue);
+        }
+        QVERIFY(image.save(second.toLocalFile()));
+        DolphinImageViewer viewer;
+        viewer.setAttribute(Qt::WA_DeleteOnClose, false);
+        QVERIFY(viewer.setImages({first, second}, first));
+        viewer.resize(640, 480);
+        viewer.showViewer();
+        const auto centerColor = [&viewer]() {
+            const QImage screenshot = viewer.grab().toImage();
+            return screenshot.pixelColor(screenshot.rect().center());
+        };
+        QTRY_COMPARE(centerColor(), QColor(Qt::red));
+        auto *graphicsView = viewer.findChild<QGraphicsView *>();
+        QVERIFY(graphicsView);
+        QGraphicsObject *controller = nullptr;
+        for (auto *item : graphicsView->scene()->items()) {
+            auto *object = item->toGraphicsObject();
+            if (!object) {
+                continue;
+            }
+            if (object->inherits("Gwenview::DocumentView")) {
+                controller = object;
+            }
+        }
+        QVERIFY(controller);
+        QVERIFY(controller->setProperty("zoom", zoom > 0 ? zoom : 2.0));
+        if (zoom > 0) {
+            QCOMPARE(controller->property("zoom").toDouble(), zoom);
+            QVERIFY(controller->setProperty("position", QPoint(800, 1600)));
+        } else {
+            viewer.actionCollection()->action(QStringLiteral("viewer_fit"))->trigger();
+        }
+        const QPoint position = controller->property("position").toPoint();
+        if (zoom > 0) {
+            QVERIFY(position.y() > 0);
+        }
+        const QSizeF viewportSize = controller->property("size").toSizeF();
+        const QPoint expectedPosition(qRound((position.x() + viewportSize.width() / 2) * secondSize.width() / 1600.0 - viewportSize.width() / 2),
+                                      qRound((position.y() + viewportSize.height() / 2) * secondSize.height() / 1200.0 - viewportSize.height() / 2));
+        viewer.actionCollection()->action(QStringLiteral("viewer_next"))->trigger();
+        QTRY_COMPARE(centerColor(), QColor(keepZoomAndPosition && zoom > 0 ? Qt::blue : Qt::green));
+        if (keepZoomAndPosition && zoom > 0) {
+            QCOMPARE(controller->property("zoom").toDouble(), zoom);
+            QCOMPARE(controller->property("position").toPoint(), expectedPosition);
+            QCOMPARE(viewer.actionCollection()->action(QStringLiteral("viewer_actual_size"))->isChecked(), zoom == 1.0);
+        } else {
+            QVERIFY(viewer.actionCollection()->action(QStringLiteral("viewer_fit"))->isChecked());
+            QVERIFY(controller->property("zoom").toDouble() < 1.0);
+        }
+        viewer.actionCollection()->action(QStringLiteral("viewer_previous"))->trigger();
+        QTRY_COMPARE(centerColor(), QColor(Qt::red));
+        if (keepZoomAndPosition && zoom > 0) {
+            QCOMPARE(controller->property("zoom").toDouble(), zoom);
+            QCOMPARE(controller->property("position").toPoint(), position);
+        }
+    }
+
     void testZoomModesAreExclusive()
     {
         QTemporaryDir directory;
@@ -527,12 +617,16 @@ private Q_SLOTS:
         ViewerSettingsPage preferences;
         auto *fullscreen = preferences.findChild<QCheckBox *>(QStringLiteral("viewer_open_fullscreen"));
         auto *fitPolicy = preferences.findChild<QComboBox *>(QStringLiteral("viewer_fit_policy"));
+        auto *keepZoomAndPosition = preferences.findChild<QCheckBox *>(QStringLiteral("viewer_keep_zoom_position"));
         auto *actions = preferences.findChild<KActionCollection *>();
         QVERIFY(fullscreen);
         QVERIFY(fitPolicy);
+        QVERIFY(keepZoomAndPosition);
+        QVERIFY(keepZoomAndPosition->isChecked());
         QVERIFY(actions);
         fitPolicy->setCurrentIndex(1);
         fullscreen->setChecked(true);
+        keepZoomAndPosition->setChecked(false);
         actions->action(QStringLiteral("viewer_next"))->setShortcuts({QKeySequence(Qt::Key_N)});
         preferences.applySettings();
         QTRY_COMPARE(viewer.grab().toImage().pixelColor(outerPoint), QColor(Qt::green));
@@ -548,6 +642,7 @@ private Q_SLOTS:
         QTRY_COMPARE(viewer.grab().toImage().pixelColor(viewer.rect().center()), QColor(Qt::red));
 
         ViewerSettingsPage reopened;
+        QVERIFY(!reopened.findChild<QCheckBox *>(QStringLiteral("viewer_keep_zoom_position"))->isChecked());
         QVERIFY(reopened.findChild<QCheckBox *>(QStringLiteral("viewer_open_fullscreen"))->isChecked());
         QCOMPARE(reopened.findChild<QComboBox *>(QStringLiteral("viewer_fit_policy"))->currentIndex(), 1);
         QCOMPARE(reopened.findChild<KActionCollection *>()->action(QStringLiteral("viewer_next"))->shortcuts(), QList<QKeySequence>{QKeySequence(Qt::Key_N)});
@@ -560,6 +655,7 @@ private Q_SLOTS:
 
         preferences.restoreDefaults();
         preferences.applySettings();
+        QVERIFY(GeneralSettings::imageViewerKeepZoomAndPosition());
         QVERIFY(!GeneralSettings::imageViewerOpenFullscreen());
         QVERIFY(!GeneralSettings::imageViewerEnlargeSmallerImages());
         QCOMPARE(viewer.actionCollection()->action(QStringLiteral("viewer_next"))->shortcuts(), QList<QKeySequence>{QKeySequence(Qt::Key_Right)});
@@ -586,12 +682,14 @@ private Q_SLOTS:
                 QVERIFY(preferences.grab().save(screenshots + QStringLiteral("/viewer-preferences.png")));
             }
             preferences.findChild<QCheckBox *>(QStringLiteral("viewer_open_fullscreen"))->setChecked(true);
+            preferences.findChild<QCheckBox *>(QStringLiteral("viewer_keep_zoom_position"))->setChecked(false);
             preferences.findChild<QComboBox *>(QStringLiteral("viewer_fit_policy"))->setCurrentIndex(1);
             preferences.findChild<KActionCollection *>()->action(QStringLiteral("viewer_next"))->setShortcuts({QKeySequence(Qt::Key_N)});
         }
         QVERIFY(!GeneralSettings::imageViewerOpenFullscreen());
         QVERIFY(!GeneralSettings::imageViewerEnlargeSmallerImages());
         ViewerSettingsPage preferences;
+        QVERIFY(GeneralSettings::imageViewerKeepZoomAndPosition());
         QCOMPARE(preferences.findChild<KActionCollection *>()->action(QStringLiteral("viewer_next"))->shortcuts(),
                  QList<QKeySequence>{QKeySequence(Qt::Key_Right)});
         preferences.findChild<QComboBox *>(QStringLiteral("viewer_fit_policy"))->setCurrentIndex(1);

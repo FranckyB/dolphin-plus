@@ -360,6 +360,17 @@ the `ImageViewer` group of `dolphinplusrc`; native KActionCollection shortcuts u
 Cancel cannot change a live viewer. Apply refreshes open viewers; fullscreen
 startup is only used when opening a viewer, not while applying other settings.
 
+`KeepZoomAndPosition` defaults to true in the same group. Navigation retains the
+chosen Fit, Actual Size, or custom zoom mode; disabling it resets each image to
+Fit. Before leaving a loaded, zoomed local image, the viewer captures the zoom
+and normalized visible center through the component's Qt `zoom` and `position`
+properties. Once the next image loads, it restores zoom and maps that center to
+the new dimensions with device-pixel-ratio correction. The component clamps pan
+to its image bounds. Unknown dimensions retain native position behavior. Pending
+restoration survives navigation past images that have not finished loading;
+explicit Fit or Actual Size cancels it. The choice persists, not the session's
+numeric zoom or position: a new viewer starts in Fit.
+
 Fit and Actual Size are explicit, mutually exclusive viewer modes. Manual zoom
 may leave neither selected. Local image fitting uses QImageReader dimensions,
 EXIF orientation when enabled by the renderer, device-pixel ratio, and the
