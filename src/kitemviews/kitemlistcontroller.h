@@ -110,6 +110,11 @@ public:
      * @return \c true if search as you type is active, or \c false otherwise.
      */
     bool isSearchAsYouTypeActive() const;
+    void setPersistentKeyboardSearch(bool enabled);
+    bool isPersistentKeyboardSearchActive() const;
+    void cancelKeyboardSearch();
+    void setKeyboardSearchText(const QString &text);
+    void nextKeyboardSearchMatch();
 
     bool processEvent(QEvent *event, const QTransform &transform);
 
@@ -195,6 +200,7 @@ Q_SIGNALS:
      * @param foundIndex    The index of the item that was marked as current in response to this search.
      */
     void typeAheadUsed(const QString &typedString, std::optional<int> foundIndex);
+    void keyboardSearchTextChanged(const QString &text);
 
     /**
      * Is emitted if the Escape key is pressed.

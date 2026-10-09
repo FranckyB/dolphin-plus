@@ -496,7 +496,8 @@ void DolphinMainWindow::addToPlaces()
 
 DolphinTabPage *DolphinMainWindow::openNewTab(const QUrl &url)
 {
-    return m_tabWidget->openNewTab(url, QUrl());
+    m_tabWidget->openNewActivatedTab(url, QUrl());
+    return m_tabWidget->currentTabPage();
 }
 
 void DolphinMainWindow::openNewTabAndActivate(const QUrl &url)

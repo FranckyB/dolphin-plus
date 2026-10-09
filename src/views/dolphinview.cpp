@@ -128,10 +128,15 @@ DolphinView::DolphinView(const QUrl &url, QWidget *parent)
     applyModeToView();
 
     KItemListController *controller = new KItemListController(m_model, m_view, this);
+    controller->setPersistentKeyboardSearch(GeneralSettings::keyboardSearchMatchAnywhere());
     controller->setAutoActivationEnabled(GeneralSettings::autoExpandFolders());
     connect(controller, &KItemListController::clickViewBackground, this, &DolphinView::clickViewBackground);
     connect(controller, &KItemListController::doubleClickViewBackground, this, &DolphinView::doubleClickViewBackground);
     connect(controller, &KItemListController::typeAheadUsed, this, [this](const QString &typedString, std::optional<int> foundIndex) {
+        if (GeneralSettings::keyboardSearchMatchAnywhere()) {
+            Q_EMIT keyboardSearchChanged(typedString, foundIndex.has_value());
+            return;
+        }
         if (foundIndex.has_value()) {
             const KFileItem item = m_model->fileItem(foundIndex.value());
             if (item.isNull()) {
@@ -272,7 +277,34 @@ DolphinView::DolphinView(const QUrl &url, QWidget *parent)
     applyViewProperties();
     m_topLayout->addWidget(m_container);
 
+    connect(controller, &KItemListController::keyboardSearchTextChanged, this, [this](const QString &text) {
+        m_view->setKeyboardSearchText(text);
+        if (text.isEmpty()) {
+            Q_EMIT keyboardSearchChanged(text, true);
+        }
+    });
+
     loadDirectory(url);
+}
+
+void DolphinView::setKeyboardSearchInput(QWidget *input)
+{
+    m_container->setKeyboardSearchInput(input);
+}
+
+void DolphinView::setKeyboardSearchText(const QString &text)
+{
+    m_container->controller()->setKeyboardSearchText(text);
+}
+
+void DolphinView::nextKeyboardSearchMatch()
+{
+    m_container->controller()->nextKeyboardSearchMatch();
+}
+
+void DolphinView::cancelKeyboardSearch()
+{
+    m_container->controller()->cancelKeyboardSearch();
 }
 
 DolphinView::~DolphinView()
@@ -678,6 +710,7 @@ void DolphinView::readSettings()
     applyViewProperties();
 
     m_container->controller()->setAutoActivationEnabled(GeneralSettings::autoExpandFolders());
+    m_container->controller()->setPersistentKeyboardSearch(GeneralSettings::keyboardSearchMatchAnywhere());
 
     const int newZoomLevel = m_view->zoomLevel();
     if (newZoomLevel != oldZoomLevel) {
@@ -2392,6 +2425,7 @@ void DolphinView::slotRoleEditingFinished(int index, const QByteArray &role, con
 
 void DolphinView::loadDirectory(const QUrl &url, bool reload)
 {
+    m_container->controller()->cancelKeyboardSearch();
     if (!url.isValid()) {
         const QString location(url.toDisplayString(QUrl::PreferLocalFile));
         if (location.isEmpty()) {

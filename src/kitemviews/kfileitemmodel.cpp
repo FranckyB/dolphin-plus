@@ -579,15 +579,13 @@ QString removeMarks(const QString &original)
 int KFileItemModel::indexForKeyboardSearch(const QString &text, int startFromIndex) const
 {
     const auto noMarkText = removeMarks(text);
-    startFromIndex = qMax(0, startFromIndex);
-    for (int i = startFromIndex; i < count(); ++i) {
-        if (removeMarks(fileItem(i).text()).startsWith(noMarkText, Qt::CaseInsensitive)) {
-            return i;
-        }
-    }
-    for (int i = 0; i < startFromIndex; ++i) {
-        if (removeMarks(fileItem(i).text()).startsWith(noMarkText, Qt::CaseInsensitive)) {
-            return i;
+    const bool matchAnywhere = GeneralSettings::keyboardSearchMatchAnywhere();
+    startFromIndex = qBound(0, startFromIndex, count());
+    for (int offset = 0; offset < count(); ++offset) {
+        const int index = (startFromIndex + offset) % count();
+        const QString name = removeMarks(fileItem(index).text());
+        if (matchAnywhere ? name.contains(noMarkText, Qt::CaseInsensitive) : name.startsWith(noMarkText, Qt::CaseInsensitive)) {
+            return index;
         }
     }
     return -1;

@@ -38,6 +38,7 @@ public:
 
     void setItemLayout(ItemLayout layout);
     ItemLayout itemLayout() const;
+    void setKeyboardSearchText(const QString &text);
 
 protected:
     KItemListWidgetCreatorBase *defaultWidgetCreator() const override;
@@ -59,6 +60,7 @@ private:
 
 private:
     ItemLayout m_itemLayout;
+    QString m_keyboardSearchText;
 };
 
 #endif

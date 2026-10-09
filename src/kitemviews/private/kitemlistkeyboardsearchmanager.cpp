@@ -8,6 +8,8 @@
 
 #include "kitemlistkeyboardsearchmanager.h"
 
+#include <QTextBoundaryFinder>
+
 KItemListKeyboardSearchManager::KItemListKeyboardSearchManager(QObject *parent)
     : QObject(parent)
     , m_timeout(1000)
@@ -26,11 +28,19 @@ bool KItemListKeyboardSearchManager::shouldClearSearchIfInputTimeReached()
 
 bool KItemListKeyboardSearchManager::isSearchAsYouTypeActive() const
 {
-    return !m_searchedString.isEmpty() && !m_keyboardInputTime.hasExpired(m_timeout);
+    return !m_searchedString.isEmpty() && (m_persistentSearch || !m_keyboardInputTime.hasExpired(m_timeout));
 }
 
 void KItemListKeyboardSearchManager::addKeys(const QString &keys)
 {
+    if (m_persistentSearch) {
+        if (keys.isEmpty() || (m_searchedString.isEmpty() && keys == QLatin1Char(' '))) {
+            return;
+        }
+        setSearchText(m_searchedString + keys);
+        return;
+    }
+
     if (shouldClearSearchIfInputTimeReached()) {
         m_searchedString.clear();
         m_lastSuccessfulSearch.clear();
@@ -77,6 +87,21 @@ void KItemListKeyboardSearchManager::addKeys(const QString &keys)
     m_keyboardInputTime.start();
 }
 
+void KItemListKeyboardSearchManager::setSearchText(const QString &text)
+{
+    if (!m_persistentSearch) {
+        return;
+    }
+    if (text.isEmpty()) {
+        cancelSearch();
+        return;
+    }
+    m_searchedString = text;
+    bool found = false;
+    Q_EMIT changeCurrentItem(m_searchedString, false, &found);
+    Q_EMIT searchTextChanged(m_searchedString);
+}
+
 void KItemListKeyboardSearchManager::setTimeout(qint64 milliseconds)
 {
     m_timeout = milliseconds;
@@ -89,7 +114,51 @@ qint64 KItemListKeyboardSearchManager::timeout() const
 
 void KItemListKeyboardSearchManager::cancelSearch()
 {
+    const bool hadSearch = !m_searchedString.isEmpty();
     m_searchedString.clear();
+    m_lastSuccessfulSearch.clear();
+    if (hadSearch) {
+        Q_EMIT searchTextChanged(QString());
+    }
+}
+
+void KItemListKeyboardSearchManager::setPersistentSearch(bool enabled)
+{
+    if (m_persistentSearch != enabled) {
+        cancelSearch();
+        m_persistentSearch = enabled;
+    }
+}
+
+bool KItemListKeyboardSearchManager::persistentSearch() const
+{
+    return m_persistentSearch;
+}
+
+void KItemListKeyboardSearchManager::nextMatch()
+{
+    if (isSearchAsYouTypeActive()) {
+        bool found = false;
+        Q_EMIT changeCurrentItem(m_searchedString, true, &found);
+    }
+}
+
+void KItemListKeyboardSearchManager::backspace()
+{
+    if (!isSearchAsYouTypeActive()) {
+        return;
+    }
+    QTextBoundaryFinder boundary(QTextBoundaryFinder::Grapheme, m_searchedString);
+    boundary.toEnd();
+    const int end = qMax(0, boundary.toPreviousBoundary());
+    if (end == 0) {
+        cancelSearch();
+        return;
+    }
+    m_searchedString.truncate(end);
+    bool found = false;
+    Q_EMIT changeCurrentItem(m_searchedString, false, &found);
+    Q_EMIT searchTextChanged(m_searchedString);
 }
 
 void KItemListKeyboardSearchManager::slotCurrentChanged(int current, int previous)

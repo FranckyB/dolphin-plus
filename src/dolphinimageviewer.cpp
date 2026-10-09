@@ -58,6 +58,21 @@ DolphinImageViewer::DolphinImageViewer(QWidget *parent)
     setObjectName(QStringLiteral("dolphin_image_viewer"));
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowTitle(i18nc("@title:window", "Image Viewer - Dolphin Plus"));
+    m_cursorTimer = new QTimer(this);
+    m_cursorTimer->setObjectName(QStringLiteral("viewer_cursor_hide_timer"));
+    m_cursorTimer->setSingleShot(true);
+    m_cursorTimer->setInterval(2000);
+    m_cursorTimer->setTimerType(Qt::PreciseTimer);
+    connect(m_cursorTimer, &QTimer::timeout, this, [this]() {
+        if (!m_cursorWidget || !isVisible() || !isFullScreen() || !isActiveWindow() || QApplication::activePopupWidget() || QApplication::activeModalWidget()
+            || QApplication::mouseButtons() != Qt::NoButton) {
+            return;
+        }
+        m_cursorWasExplicit = m_cursorWidget->testAttribute(Qt::WA_SetCursor);
+        m_savedCursor = m_cursorWidget->cursor();
+        m_cursorHidden = true;
+        m_cursorWidget->setCursor(Qt::BlankCursor);
+    });
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     m_navigationMessage = new KMessageWidget(this);
@@ -73,6 +88,10 @@ DolphinImageViewer::DolphinImageViewer(QWidget *parent)
     }
 
     m_part = result.plugin;
+    auto *graphicsView = qobject_cast<QGraphicsView *>(m_part->widget());
+    m_cursorWidget = graphicsView ? graphicsView->viewport() : m_part->widget();
+    m_cursorWidget->setMouseTracking(true);
+    setMouseTracking(true);
     QPalette imagePalette = m_part->widget()->palette();
     imagePalette.setColor(QPalette::Base, Qt::black);
     m_part->widget()->setPalette(imagePalette);
@@ -295,6 +314,13 @@ void DolphinImageViewer::syncZoomActions()
     }
     m_actions->action(QStringLiteral("viewer_actual_size"))->setChecked(m_zoomMode == ZoomMode::ActualSize);
     m_actions->action(QStringLiteral("viewer_fit"))->setChecked(m_zoomMode == ZoomMode::Fit);
+    if (m_zoomController) {
+        for (auto *item : m_zoomController->childItems()) {
+            if (auto *overview = item->toGraphicsObject(); overview && overview->inherits("Gwenview::BirdEyeView")) {
+                overview->setVisible(m_zoomMode != ZoomMode::Fit);
+            }
+        }
+    }
 }
 
 void DolphinImageViewer::resizeEvent(QResizeEvent *event)
@@ -317,6 +343,7 @@ void DolphinImageViewer::showViewer()
 
 void DolphinImageViewer::configureViewer()
 {
+    restoreCursor();
     QDialog dialog(this);
     dialog.setWindowTitle(i18nc("@title:window", "Configure Image Viewer"));
     auto *layout = new QVBoxLayout(&dialog);
@@ -334,10 +361,12 @@ void DolphinImageViewer::configureViewer()
     connect(buttons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked, page, &ViewerSettingsPage::restoreDefaults);
     dialog.resize(700, 560);
     dialog.exec();
+    restartCursorTimer();
 }
 
 DolphinImageViewer::~DolphinImageViewer()
 {
+    restoreCursor();
     cancelSiblingNavigation();
     qApp->removeEventFilter(this);
 }
@@ -561,6 +590,9 @@ void DolphinImageViewer::openCurrentImage()
     m_part->openUrl(currentUrl());
     if (m_imageLoaded) {
         applyZoomMode();
+    } else {
+        findZoomController();
+        syncZoomActions();
     }
 }
 
@@ -571,6 +603,31 @@ void DolphinImageViewer::triggerPartAction(const char *name)
     }
 }
 
+void DolphinImageViewer::restoreCursor()
+{
+    m_cursorTimer->stop();
+    if (!m_cursorHidden) {
+        return;
+    }
+    m_cursorHidden = false;
+    if (m_cursorWidget) {
+        if (m_cursorWasExplicit) {
+            m_cursorWidget->setCursor(m_savedCursor);
+        } else {
+            m_cursorWidget->unsetCursor();
+        }
+    }
+}
+
+void DolphinImageViewer::restartCursorTimer()
+{
+    restoreCursor();
+    if (m_cursorWidget && isVisible() && isFullScreen() && isActiveWindow() && !QApplication::activePopupWidget() && !QApplication::activeModalWidget()
+        && QApplication::mouseButtons() == Qt::NoButton) {
+        m_cursorTimer->start();
+    }
+}
+
 bool DolphinImageViewer::eventFilter(QObject *watched, QEvent *event)
 {
     const auto *widget = qobject_cast<QWidget *>(watched);
@@ -578,7 +635,44 @@ bool DolphinImageViewer::eventFilter(QObject *watched, QEvent *event)
         return QWidget::eventFilter(watched, event);
     }
 
+    if (watched == m_cursorWidget && event->type() == QEvent::CursorChange && m_cursorHidden && m_cursorWidget->cursor().shape() != Qt::BlankCursor) {
+        m_cursorWasExplicit = m_cursorWidget->testAttribute(Qt::WA_SetCursor);
+        m_savedCursor = m_cursorWidget->cursor();
+        m_cursorWidget->setCursor(Qt::BlankCursor);
+    }
+    if (watched == this) {
+        switch (event->type()) {
+        case QEvent::WindowStateChange:
+        case QEvent::WindowActivate:
+        case QEvent::Show:
+        case QEvent::Enter:
+            restartCursorTimer();
+            break;
+        case QEvent::WindowDeactivate:
+        case QEvent::Hide:
+        case QEvent::Leave:
+            restoreCursor();
+            break;
+        default:
+            break;
+        }
+    }
+    switch (event->type()) {
+    case QEvent::MouseMove:
+    case QEvent::MouseButtonRelease:
+    case QEvent::Wheel:
+        restartCursorTimer();
+        break;
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonDblClick:
+        restoreCursor();
+        break;
+    default:
+        break;
+    }
+
     if (event->type() == QEvent::ContextMenu) {
+        restoreCursor();
         auto *contextEvent = static_cast<QContextMenuEvent *>(event);
         QMenu menu(this);
         for (const QString &name : {QStringLiteral("viewer_previous"),
@@ -604,6 +698,7 @@ bool DolphinImageViewer::eventFilter(QObject *watched, QEvent *event)
         menu.addAction(m_actions->action(QStringLiteral("viewer_configure")));
         menu.addAction(m_actions->action(QStringLiteral("viewer_close")));
         menu.exec(contextEvent->globalPos());
+        restartCursorTimer();
         return true;
     } else if (event->type() == QEvent::Wheel) {
         const auto *wheelEvent = static_cast<QWheelEvent *>(event);
@@ -631,6 +726,7 @@ bool DolphinImageViewer::eventFilter(QObject *watched, QEvent *event)
 
 void DolphinImageViewer::closeEvent(QCloseEvent *event)
 {
+    restoreCursor();
     cancelSiblingNavigation();
     Q_EMIT returnToFileRequested(currentUrl(), m_directory);
     QWidget::closeEvent(event);

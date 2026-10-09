@@ -11,12 +11,18 @@
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QGraphicsScene>
+#include <QGraphicsView>
+#include <QGraphicsWidget>
 #include <QImage>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QWheelEvent>
 
@@ -273,6 +279,125 @@ private Q_SLOTS:
         QCOMPARE(returned.count(), 1);
         QCOMPARE(returned.first().at(0).toUrl(), first);
         QCOMPARE(returned.first().at(1).toUrl(), first.adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash));
+    }
+
+    void testOverviewHiddenInFit()
+    {
+        QTemporaryDir directory;
+        const QUrl imageUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("portrait.png")));
+        const QUrl nextUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("next.png")));
+        QImage image(1600, 2400, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(imageUrl.toLocalFile()));
+        QVERIFY(image.save(nextUrl.toLocalFile()));
+        DolphinImageViewer viewer;
+        viewer.setAttribute(Qt::WA_DeleteOnClose, false);
+        viewer.resize(640, 480);
+        QVERIFY(viewer.setImages({imageUrl}, imageUrl));
+        viewer.showViewer();
+        QTRY_VERIFY(viewer.isActiveWindow());
+        auto *part = viewer.findChild<KParts::ReadOnlyPart *>();
+        auto *graphicsView = qobject_cast<QGraphicsView *>(part->widget());
+        QVERIFY(graphicsView);
+        const auto findOverview = [graphicsView]() -> QGraphicsObject * {
+            for (auto *item : graphicsView->scene()->items()) {
+                if (auto *object = item->toGraphicsObject(); object && object->inherits("Gwenview::BirdEyeView")) {
+                    return object;
+                }
+            }
+            return nullptr;
+        };
+        QTRY_COMPARE(viewer.grab().toImage().pixelColor(viewer.rect().center()), QColor(Qt::red));
+        QTRY_VERIFY(findOverview());
+        auto *overview = findOverview();
+        QTRY_VERIFY(!overview->isVisible());
+        viewer.actionCollection()->action(QStringLiteral("viewer_actual_size"))->trigger();
+        QTRY_VERIFY(overview->isVisible() && overview->opacity() > 0);
+        viewer.actionCollection()->action(QStringLiteral("viewer_fit"))->trigger();
+        QVERIFY(!overview->isVisible());
+        QTest::mouseMove(graphicsView->viewport(), QPoint(500, 300));
+        QVERIFY(!overview->isVisible());
+        viewer.resize(480, 720);
+        QTRY_COMPARE(viewer.grab().toImage().pixelColor(QPoint(20, 360)), QColor(Qt::red));
+        QTRY_VERIFY(viewer.actionCollection()->action(QStringLiteral("viewer_fit"))->isChecked());
+        QVERIFY(!overview->isVisible());
+        viewer.actionCollection()->action(QStringLiteral("viewer_zoom_in"))->trigger();
+        QTRY_VERIFY(overview->isVisible() && overview->opacity() > 0);
+        QVERIFY(viewer.setImages({imageUrl}, imageUrl));
+        QVERIFY(!overview->isVisible());
+        viewer.actionCollection()->action(QStringLiteral("viewer_actual_size"))->trigger();
+        QTRY_VERIFY(overview->isVisible() && overview->opacity() > 0);
+        QVERIFY(viewer.setImages({nextUrl}, nextUrl));
+        QVERIFY(findOverview());
+        QVERIFY(!findOverview()->isVisible());
+    }
+
+    void testFullscreenCursorIdle()
+    {
+        QTemporaryDir directory;
+        const QUrl imageUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("image.png")));
+        QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(imageUrl.toLocalFile()));
+        DolphinImageViewer viewer;
+        viewer.setAttribute(Qt::WA_DeleteOnClose, false);
+        QVERIFY(viewer.setImages({imageUrl}, imageUrl));
+        viewer.showViewer();
+        QTRY_VERIFY(viewer.isActiveWindow());
+        auto *part = viewer.findChild<KParts::ReadOnlyPart *>();
+        auto *graphicsView = qobject_cast<QGraphicsView *>(part->widget());
+        QVERIFY(graphicsView);
+        auto *viewport = graphicsView->viewport();
+        auto *timer = viewer.findChild<QTimer *>(QStringLiteral("viewer_cursor_hide_timer"));
+        QVERIFY(timer);
+        QCOMPARE(timer->interval(), 2000);
+        QTest::mouseMove(viewport, QPoint(10, 10));
+        QVERIFY(!timer->isActive());
+        QVERIFY(viewport->cursor().shape() != Qt::BlankCursor);
+        viewer.actionCollection()->action(QStringLiteral("viewer_fullscreen"))->trigger();
+        QTRY_VERIFY(viewer.isFullScreen() && viewer.isActiveWindow());
+        QElapsedTimer idle;
+        idle.start();
+        QTest::mouseMove(viewport, QPoint(20, 20));
+        QVERIFY(timer->isActive());
+        QTRY_COMPARE_WITH_TIMEOUT(viewport->cursor().shape(), Qt::BlankCursor, 3500);
+        QVERIFY(idle.elapsed() >= 2000);
+        QVERIFY(!QApplication::overrideCursor());
+        viewport->setCursor(Qt::CrossCursor);
+        QCOMPARE(viewport->cursor().shape(), Qt::BlankCursor);
+        QWidget otherWindow;
+        QVERIFY(otherWindow.cursor().shape() != Qt::BlankCursor);
+        QTest::mouseMove(viewport, QPoint(30, 30));
+        QVERIFY(viewport->cursor().shape() != Qt::BlankCursor);
+        QVERIFY(timer->isActive());
+        QTest::mousePress(viewport, Qt::LeftButton, Qt::NoModifier, QPoint(30, 30));
+        QVERIFY(!timer->isActive());
+        QTest::mouseRelease(viewport, Qt::LeftButton, Qt::NoModifier, QPoint(30, 30));
+        QVERIFY(timer->isActive());
+        QTRY_COMPARE_WITH_TIMEOUT(viewport->cursor().shape(), Qt::BlankCursor, 3500);
+        viewer.showNormal();
+        QVERIFY(viewport->cursor().shape() != Qt::BlankCursor);
+        QVERIFY(!timer->isActive());
+        viewer.showFullScreen();
+        QTRY_VERIFY(viewer.isActiveWindow());
+        QTest::mouseMove(viewport, QPoint(40, 40));
+        QVERIFY(timer->isActive());
+        QDialog dialog(&viewer);
+        dialog.setModal(true);
+        dialog.show();
+        dialog.activateWindow();
+        QTRY_VERIFY(dialog.isActiveWindow());
+        QVERIFY(viewport->cursor().shape() != Qt::BlankCursor);
+        QVERIFY(!timer->isActive());
+        QVERIFY(dialog.cursor().shape() != Qt::BlankCursor);
+        dialog.close();
+        viewer.showViewer();
+        QTRY_VERIFY(viewer.isActiveWindow());
+        QTest::mouseMove(viewport, QPoint(50, 50));
+        QVERIFY(timer->isActive());
+        viewer.close();
+        QVERIFY(!timer->isActive());
+        QVERIFY(viewport->cursor().shape() != Qt::BlankCursor);
     }
 
     void testZoomModesAreExclusive()

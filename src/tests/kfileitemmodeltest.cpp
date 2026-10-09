@@ -7,6 +7,7 @@
 
 #include <QMimeData>
 #include <QRandomGenerator>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
@@ -15,6 +16,7 @@
 #include <KDirLister>
 #include <KIO/SimpleJob>
 
+#include "dolphin_generalsettings.h"
 #include "kitemviews/kfileitemmodel.h"
 #include "testdir.h"
 
@@ -71,6 +73,7 @@ private Q_SLOTS:
     void testStringCompare_data();
     void testStringCompare();
     void testIndexForKeyboardSearch();
+    void testKeyboardSearchContains();
     void testNameFilter();
     void testEmptyPath();
     void testRefreshExpandedItem();
@@ -1405,6 +1408,11 @@ void KFileItemModelTest::testStringCompare()
 
 void KFileItemModelTest::testIndexForKeyboardSearch()
 {
+    const bool previous = GeneralSettings::keyboardSearchMatchAnywhere();
+    const auto restore = qScopeGuard([previous]() {
+        GeneralSettings::setKeyboardSearchMatchAnywhere(previous);
+    });
+    GeneralSettings::setKeyboardSearchMatchAnywhere(false);
     QSignalSpy itemsInsertedSpy(m_model, &KFileItemModel::itemsInserted);
 
     m_testDir->createFiles({"a", "aa", "Image.jpg", "Image.png", "Text", "Text1", "Text2", "Text11", "U", "Ü", "Üu", "Ž"});
@@ -1460,6 +1468,27 @@ void KFileItemModelTest::testIndexForKeyboardSearch()
     QCOMPARE(m_model->indexForKeyboardSearch("z", 0), 11);
 
     // TODO: Maybe we should also test keyboard searches in directories which are not sorted by Name?
+}
+
+void KFileItemModelTest::testKeyboardSearchContains()
+{
+    const bool previous = GeneralSettings::keyboardSearchMatchAnywhere();
+    const auto restore = qScopeGuard([previous]() {
+        GeneralSettings::setKeyboardSearchMatchAnywhere(previous);
+    });
+    GeneralSettings::setKeyboardSearchMatchAnywhere(true);
+    m_testDir->createFiles({"build_unreal.py", "export_UNREAL.py", "notes.txt", "unreal.py"});
+    QSignalSpy inserted(m_model, &KFileItemModel::itemsInserted);
+    m_model->loadDirectory(m_testDir->url());
+    QVERIFY(inserted.wait());
+    QCOMPARE(m_model->indexForKeyboardSearch("unreal", 0), 0);
+    QCOMPARE(m_model->indexForKeyboardSearch("unreal", 1), 1);
+    QCOMPARE(m_model->indexForKeyboardSearch("unreal", 2), 3);
+    QCOMPARE(m_model->indexForKeyboardSearch("unreal", 4), 0);
+    QCOMPARE(m_model->indexForKeyboardSearch("missing", 0), -1);
+    QCOMPARE(m_model->count(), 4);
+    GeneralSettings::setKeyboardSearchMatchAnywhere(false);
+    QCOMPARE(m_model->indexForKeyboardSearch("unreal", 0), 3);
 }
 
 void KFileItemModelTest::testNameFilter()

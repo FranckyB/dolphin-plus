@@ -262,6 +262,10 @@ public:
      * font, ...).
      */
     void readSettings();
+    void setKeyboardSearchInput(QWidget *input);
+    void setKeyboardSearchText(const QString &text);
+    void nextKeyboardSearchMatch();
+    void cancelKeyboardSearch();
 
     /**
      * Saves the current settings (e.g. icons size, font, ..).
@@ -657,6 +661,7 @@ Q_SIGNALS:
      * Is emitted so the \a typeAheadFeedback is displayed to the user. Beware: \a typeAheadFeedback is HTML-escaped rich text.
      */
     void showTypeAheadFeedback(const QString &typeAheadFeedback);
+    void keyboardSearchChanged(const QString &text, bool found);
 
     /**
      * Is emitted after DolphinView::setUrl() has been invoked and

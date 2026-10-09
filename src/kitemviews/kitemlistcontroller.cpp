@@ -59,6 +59,7 @@ KItemListController::KItemListController(KItemModelBase *model, KItemListView *v
     , m_keyboardAnchorPos(0)
 {
     connect(m_keyboardManager, &KItemListKeyboardSearchManager::changeCurrentItem, this, &KItemListController::slotChangeCurrentItem, Qt::DirectConnection);
+    connect(m_keyboardManager, &KItemListKeyboardSearchManager::searchTextChanged, this, &KItemListController::keyboardSearchTextChanged);
     connect(m_selectionManager, &KItemListSelectionManager::currentChanged, m_keyboardManager, &KItemListKeyboardSearchManager::slotCurrentChanged);
     connect(m_selectionManager, &KItemListSelectionManager::selectionChanged, m_keyboardManager, &KItemListKeyboardSearchManager::slotSelectionChanged);
 
@@ -235,11 +236,56 @@ bool KItemListController::isSearchAsYouTypeActive() const
     return m_keyboardManager->isSearchAsYouTypeActive();
 }
 
+void KItemListController::setPersistentKeyboardSearch(bool enabled)
+{
+    m_keyboardManager->setPersistentSearch(enabled);
+}
+
+bool KItemListController::isPersistentKeyboardSearchActive() const
+{
+    return m_keyboardManager->persistentSearch() && m_keyboardManager->isSearchAsYouTypeActive();
+}
+
+void KItemListController::cancelKeyboardSearch()
+{
+    m_keyboardManager->cancelSearch();
+}
+
+void KItemListController::setKeyboardSearchText(const QString &text)
+{
+    m_keyboardManager->setSearchText(text);
+}
+
+void KItemListController::nextKeyboardSearchMatch()
+{
+    m_keyboardManager->nextMatch();
+}
+
 bool KItemListController::keyPressEvent(QKeyEvent *event)
 {
     int index = m_selectionManager->currentItem();
     int key = event->key();
     const bool shiftPressed = event->modifiers() & Qt::ShiftModifier;
+
+    if (isPersistentKeyboardSearchActive() && event->modifiers() == Qt::NoModifier) {
+        if (key == Qt::Key_Tab) {
+            m_keyboardManager->nextMatch();
+            return true;
+        }
+        if (key == Qt::Key_Backspace) {
+            m_keyboardManager->backspace();
+            return true;
+        }
+        if (key == Qt::Key_Escape) {
+            cancelKeyboardSearch();
+            return true;
+        }
+    }
+    if (m_keyboardManager->persistentSearch()
+        && (key == Qt::Key_Home || key == Qt::Key_End || key == Qt::Key_PageUp || key == Qt::Key_PageDown || key == Qt::Key_Up || key == Qt::Key_Down
+            || key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Return || key == Qt::Key_Enter)) {
+        cancelKeyboardSearch();
+    }
 
     const bool horizontalScrolling = m_view->scrollOrientation() == Qt::Horizontal;
 
@@ -472,6 +518,12 @@ bool KItemListController::keyPressEvent(QKeyEvent *event)
         }
         Q_FALLTHROUGH(); // fall through to the default case and add the Space to the current search string.
     default:
+        if (m_keyboardManager->persistentSearch()
+            && (event->text().isEmpty() || !event->text().front().isPrint() || event->modifiers().testFlag(Qt::ControlModifier)
+                || event->modifiers().testFlag(Qt::AltModifier))) {
+            event->ignore();
+            return false;
+        }
         m_keyboardManager->addKeys(event->text());
         // Make sure unconsumed events get propagated up the chain. #302329
         event->ignore();
@@ -519,6 +571,7 @@ void KItemListController::slotChangeCurrentItem(const QString &text, bool search
 {
     *found = false;
     if (!m_model || m_model->count() == 0) {
+        Q_EMIT typeAheadUsed(text, std::nullopt);
         return;
     }
     int index;
@@ -588,6 +641,9 @@ bool KItemListController::inputMethodEvent(QInputMethodEvent *event)
 
 bool KItemListController::mousePressEvent(QGraphicsSceneMouseEvent *event, const QTransform &transform)
 {
+    if (m_keyboardManager->persistentSearch()) {
+        cancelKeyboardSearch();
+    }
     m_mousePress = true;
     m_pressedMouseGlobalPos = event->screenPos();
 

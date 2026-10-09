@@ -50,6 +50,20 @@ KStandardItemListView::ItemLayout KStandardItemListView::itemLayout() const
     return m_itemLayout;
 }
 
+void KStandardItemListView::setKeyboardSearchText(const QString &text)
+{
+    if (m_keyboardSearchText == text) {
+        return;
+    }
+    m_keyboardSearchText = text;
+    const auto widgets = visibleItemListWidgets();
+    for (KItemListWidget *widget : widgets) {
+        if (auto *standardWidget = qobject_cast<KStandardItemListWidget *>(widget)) {
+            standardWidget->setKeyboardSearchText(text);
+        }
+    }
+}
+
 KItemListWidgetCreatorBase *KStandardItemListView::defaultWidgetCreator() const
 {
     return new KItemListWidgetCreator<KStandardItemListWidget>();
@@ -81,6 +95,7 @@ void KStandardItemListView::initializeItemListWidget(KItemListWidget *item)
     }
 
     standardItemListWidget->setHighlightEntireRow(highlightEntireRow());
+    standardItemListWidget->setKeyboardSearchText(m_keyboardSearchText);
     standardItemListWidget->setSupportsItemExpanding(supportsItemExpanding());
 }
 

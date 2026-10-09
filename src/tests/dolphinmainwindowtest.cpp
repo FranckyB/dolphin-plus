@@ -12,12 +12,15 @@
 #include "dolphintabpage.h"
 #include "dolphintabwidget.h"
 #include "dolphinviewcontainer.h"
+#include "filterbar/filterbar.h"
 #include "kitemviews/kfileitemmodel.h"
 #include "kitemviews/kfileitemmodelrolesupdater.h"
 #include "kitemviews/kitemlistcontainer.h"
 #include "kitemviews/kitemlistcontroller.h"
 #include "kitemviews/kitemlistselectionmanager.h"
 #include "kitemviews/kitemlistwidget.h"
+#include "kitemviews/kstandarditemlistwidget.h"
+#include "settings/interface/folderstabssettingspage.h"
 #include "settings/viewmodes/viewmodesettings.h"
 #include "testdir.h"
 #include "views/dolphinitemlistview.h"
@@ -32,15 +35,22 @@
 
 #include <QAccessible>
 #include <QApplication>
+#include <QCheckBox>
+#include <QClipboard>
 #include <QDomDocument>
 #include <QFileSystemWatcher>
+#include <QGraphicsScene>
+#include <QGraphicsView>
 #include <QKeySequence>
+#include <QLabel>
+#include <QLineEdit>
 #include <QPixmap>
 #include <QScopeGuard>
 #include <QScopedPointer>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
+#include <QToolButton>
 
 #include "testhelpers.h"
 
@@ -76,6 +86,10 @@ private Q_SLOTS:
     void testPlacesPanelWidthResistance();
     void testGoActions();
     void testSiblingNavigation();
+    void testRequestedTabIsActivated();
+    void testRequestedTabIsActivated_data();
+    void testContainsTypeToFind();
+    void testContainsTypeToFind_data();
     void testSiblingNavigationCancellation();
     void testSiblingNavigationSplitView();
     void testSiblingNavigationSymlink();
@@ -930,6 +944,254 @@ void DolphinMainWindowTest::testPlacesPanelWidthResistance()
 
     QApplication::processEvents(); // animations disabled via disableAnimations() in initTestCase()
     QCOMPARE(placesPanel->width(), initialPlacesPanelWidth);
+}
+
+void DolphinMainWindowTest::testContainsTypeToFind_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::newRow("icons") << int(DolphinView::IconsView);
+    QTest::newRow("compact") << int(DolphinView::CompactView);
+    QTest::newRow("details") << int(DolphinView::DetailsView);
+}
+
+void DolphinMainWindowTest::testContainsTypeToFind()
+{
+    QFETCH(int, mode);
+    const bool previous = GeneralSettings::keyboardSearchMatchAnywhere();
+    const auto restore = qScopeGuard([previous]() {
+        GeneralSettings::setKeyboardSearchMatchAnywhere(previous);
+        GeneralSettings::self()->save();
+    });
+    GeneralSettings::setKeyboardSearchMatchAnywhere(true);
+    GeneralSettings::self()->save();
+    TestDir directory;
+    const QString firstName = QStringLiteral("build_unr\u00e9al.py");
+    directory.createFiles({firstName, QStringLiteral("export_UNREAL.py"), QStringLiteral("notes.txt"), QStringLiteral("unreal.py")});
+    m_mainWindow->openDirectories({directory.url()}, false);
+    auto *view = m_mainWindow->activeViewContainer()->view();
+    view->readSettings();
+    view->setViewMode(static_cast<DolphinView::Mode>(mode));
+    auto *container = view->findChild<KItemListContainer *>();
+    QVERIFY(container);
+    auto *controller = container->controller();
+    QTRY_COMPARE(view->itemsCount(), 4);
+    m_mainWindow->resize(960, 640);
+    m_mainWindow->show();
+    m_mainWindow->QWidget::activateWindow();
+    QTRY_VERIFY(m_mainWindow->isActiveWindow());
+    view->setFocus();
+    QTRY_VERIFY(container->hasFocus());
+    QTest::keyClicks(container, "unreal");
+    auto *findBar = m_mainWindow->activeViewContainer()->findChild<FilterBar *>(QStringLiteral("type_find_feedback"));
+    QVERIFY(findBar);
+    auto *findLabel = qobject_cast<QLineEdit *>(findBar->inputWidget());
+    QVERIFY(findLabel);
+    QVERIFY(findLabel->isVisible());
+    QVERIFY(findLabel->text().contains(QStringLiteral("unreal")));
+    auto *graphicsView = qobject_cast<QGraphicsView *>(container->viewport());
+    QVERIFY(graphicsView);
+    const auto highlightedItems = [graphicsView]() {
+        const QImage screenshot = graphicsView->viewport()->grab().toImage();
+        int highlighted = 0;
+        for (auto *item : graphicsView->scene()->items()) {
+            auto *fileWidget = qobject_cast<KStandardItemListWidget *>(item->toGraphicsObject());
+            if (!fileWidget || fileWidget->index() < 0) {
+                continue;
+            }
+            const QRect bounds = graphicsView->mapFromScene(fileWidget->sceneBoundingRect()).boundingRect();
+            const qreal scale = screenshot.devicePixelRatio();
+            const QRect pixels(QPoint(qFloor(bounds.left() * scale), qFloor(bounds.top() * scale)),
+                               QSize(qCeil(bounds.width() * scale), qCeil(bounds.height() * scale)));
+            const QImage filename = screenshot.copy(pixels.intersected(screenshot.rect()));
+            bool found = false;
+            for (int row = 0; row < filename.height() && !found; ++row) {
+                for (int column = 0; column < filename.width(); ++column) {
+                    if (filename.pixelColor(column, row) == QColor(Qt::yellow)) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            highlighted += found;
+        }
+        return highlighted;
+    };
+    QTRY_COMPARE(highlightedItems(), 3);
+    const QString screenshotDirectory = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");
+    if (!screenshotDirectory.isEmpty()) {
+        QVERIFY(m_mainWindow->grab().save(screenshotDirectory + QStringLiteral("/type-find-%1.png").arg(mode)));
+    }
+    QCOMPARE(view->selectedItems().size(), 1);
+    QCOMPARE(view->selectedItems().first().name(), firstName);
+    QCOMPARE(view->itemsCount(), 4);
+    QTest::keyClick(container, Qt::Key_Tab);
+    QCOMPARE(view->selectedItems().first().name(), QStringLiteral("export_UNREAL.py"));
+    QVERIFY(container->hasFocus());
+    QTest::keyClick(container, Qt::Key_Tab);
+    QCOMPARE(view->selectedItems().first().name(), QStringLiteral("unreal.py"));
+    QTest::keyClick(container, Qt::Key_Tab);
+    QCOMPARE(view->selectedItems().first().name(), firstName);
+    QTest::keyClicks(container, "x");
+    QCOMPARE(findLabel->text(), QStringLiteral("unrealx"));
+    QCOMPARE(view->selectedItems().first().name(), firstName);
+    QTest::keyClick(container, Qt::Key_Backspace);
+    QCOMPARE(view->url(), directory.url());
+    QTest::keyClick(container, Qt::Key_Tab);
+    QCOMPARE(view->selectedItems().first().name(), QStringLiteral("export_UNREAL.py"));
+    QTest::mouseClick(findLabel, Qt::LeftButton);
+    QTRY_VERIFY(findLabel->hasFocus());
+    QVERIFY(controller->isPersistentKeyboardSearchActive());
+    QCOMPARE(findLabel->text(), QStringLiteral("unreal"));
+    QTest::keyClick(findLabel, Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClicks(findLabel, "build");
+    QCOMPARE(view->selectedItems().first().name(), firstName);
+    QCOMPARE(view->itemsCount(), 4);
+    QTRY_COMPARE(highlightedItems(), 1);
+    QTest::keyClick(findLabel, Qt::Key_A, Qt::ControlModifier);
+    QApplication::clipboard()->setText(QStringLiteral("unreal"));
+    QTest::keyClick(findLabel, Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(findLabel->text(), QStringLiteral("unreal"));
+    QTRY_COMPARE(highlightedItems(), 3);
+    QTest::keyClick(findLabel, Qt::Key_Tab);
+    QCOMPARE(view->selectedItems().first().name(), QStringLiteral("export_UNREAL.py"));
+    QVERIFY(findLabel->hasFocus());
+    QTest::keyClick(findLabel, Qt::Key_Backspace);
+    QCOMPARE(findLabel->text(), QStringLiteral("unrea"));
+    QCOMPARE(view->url(), directory.url());
+    QTest::keyClick(findLabel, Qt::Key_Return);
+    QTRY_VERIFY(container->hasFocus());
+    QVERIFY(controller->isPersistentKeyboardSearchActive());
+    QTest::keyClick(container, Qt::Key_Escape);
+    QVERIFY(!controller->isSearchAsYouTypeActive());
+    QVERIFY(!findLabel->isVisible());
+    QTRY_COMPARE(highlightedItems(), 0);
+    QCOMPARE(view->selectedItems().size(), 1);
+    QTest::keyClick(container, Qt::Key_Tab);
+    QTRY_VERIFY(!container->hasFocus());
+
+    view->setFocus();
+    QTest::keyClicks(container, "unreal");
+    QVERIFY(controller->isPersistentKeyboardSearchActive());
+    QTest::keyClick(container, Qt::Key_Down);
+    QVERIFY(!controller->isSearchAsYouTypeActive());
+    QVERIFY(!findLabel->isVisible());
+    QTest::keyClicks(container, "unreal");
+    QVERIFY(controller->isPersistentKeyboardSearchActive());
+    QTest::keyClick(container, Qt::Key_Backtab, Qt::ShiftModifier);
+    QTRY_VERIFY(!container->hasFocus());
+    QVERIFY(!controller->isSearchAsYouTypeActive());
+    QVERIFY(!findLabel->isVisible());
+
+    auto *viewContainer = m_mainWindow->activeViewContainer();
+    FilterBar *filterBar = nullptr;
+    const auto bars = viewContainer->findChildren<FilterBar *>();
+    for (auto *bar : bars) {
+        if (bar != findBar) {
+            filterBar = bar;
+        }
+    }
+    QVERIFY(filterBar);
+    auto *filterInput = qobject_cast<QLineEdit *>(filterBar->inputWidget());
+    QVERIFY(filterInput);
+    viewContainer->setFilterBarVisible(true);
+    QTRY_VERIFY(filterInput->hasFocus());
+    QTest::keyClicks(filterInput, "*.py");
+    QTRY_COMPARE(view->itemsCount(), 3);
+    view->setFocus();
+    QTest::keyClicks(container, "unreal");
+    QVERIFY(findLabel->isVisible());
+    QVERIFY(!filterBar->isVisible());
+    QCOMPARE(view->itemsCount(), 3);
+    QCOMPARE(filterInput->text(), QStringLiteral("*.py"));
+    QTest::mouseClick(findLabel, Qt::LeftButton);
+    QTRY_VERIFY(findLabel->hasFocus());
+    QTest::keyClick(findLabel, Qt::Key_Escape);
+    QVERIFY(!controller->isPersistentKeyboardSearchActive());
+    QVERIFY(filterBar->isVisible());
+    QCOMPARE(filterInput->text(), QStringLiteral("*.py"));
+    QTRY_VERIFY(container->hasFocus());
+    QTest::keyClicks(container, "unreal");
+    auto *closeFind = findBar->findChild<QToolButton *>(QStringLiteral("close_find_bar"));
+    QVERIFY(closeFind);
+    QTest::mouseClick(closeFind, Qt::LeftButton);
+    QVERIFY(!controller->isPersistentKeyboardSearchActive());
+    QVERIFY(!findLabel->isVisible());
+    QVERIFY(filterBar->isVisible());
+    QCOMPARE(filterInput->text(), QStringLiteral("*.py"));
+    QCOMPARE(view->itemsCount(), 3);
+    QTRY_VERIFY(container->hasFocus());
+    viewContainer->setFilterBarVisible(false);
+    QTRY_COMPARE(view->itemsCount(), 4);
+    QTest::keyClicks(container, "unreal");
+    QTest::mouseClick(findLabel, Qt::LeftButton);
+    QTRY_VERIFY(findLabel->hasFocus());
+    QTest::keyClick(findLabel, Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClick(findLabel, Qt::Key_Backspace);
+    QVERIFY(!findBar->isEnabled());
+    QVERIFY(!controller->isPersistentKeyboardSearchActive());
+    QTRY_VERIFY(container->hasFocus());
+
+    FoldersTabsSettingsPage preferences(nullptr);
+    auto *matchAnywhere = preferences.findChild<QCheckBox *>(QStringLiteral("keyboard_search_match_anywhere"));
+    QVERIFY(matchAnywhere);
+    QVERIFY(matchAnywhere->isChecked());
+    matchAnywhere->setChecked(false);
+    QVERIFY(GeneralSettings::keyboardSearchMatchAnywhere());
+    preferences.applySettings();
+    QVERIFY(!GeneralSettings::keyboardSearchMatchAnywhere());
+    preferences.restoreDefaults();
+    QVERIFY(matchAnywhere->isChecked());
+    QVERIFY(!GeneralSettings::keyboardSearchMatchAnywhere());
+    view->readSettings();
+    view->setFocus();
+    QTRY_VERIFY(container->hasFocus());
+    QTest::keyClicks(container, "unreal");
+    QCOMPARE(view->selectedItems().first().name(), QStringLiteral("unreal.py"));
+    QVERIFY(!controller->isPersistentKeyboardSearchActive());
+    QVERIFY(!findLabel->isVisible());
+    QTest::keyClick(container, Qt::Key_Tab);
+    QTRY_VERIFY(!container->hasFocus());
+}
+
+void DolphinMainWindowTest::testRequestedTabIsActivated_data()
+{
+    QTest::addColumn<bool>("atEnd");
+    QTest::newRow("after-current") << false;
+    QTest::newRow("at-end") << true;
+}
+
+void DolphinMainWindowTest::testRequestedTabIsActivated()
+{
+    QFETCH(bool, atEnd);
+    const bool previous = GeneralSettings::openNewTabAfterLastTab();
+    const auto restore = qScopeGuard([previous]() {
+        GeneralSettings::setOpenNewTabAfterLastTab(previous);
+    });
+    GeneralSettings::setOpenNewTabAfterLastTab(atEnd);
+    TestDir directory;
+    directory.createDir(QStringLiteral("child"));
+    m_mainWindow->openDirectories({directory.url()}, false);
+    auto *original = m_mainWindow->activeViewContainer();
+    QTRY_COMPARE(original->view()->itemsCount(), 1);
+    const QUrl child = QUrl::fromLocalFile(directory.filePath(QStringLiteral("child")));
+    m_mainWindow->m_tabWidget->openNewTab(directory.url());
+    QCOMPARE(m_mainWindow->activeViewContainer(), original);
+    m_mainWindow->show();
+    m_mainWindow->QWidget::activateWindow();
+    QTRY_VERIFY(m_mainWindow->isActiveWindow());
+    auto *container = original->view()->findChild<KItemListContainer *>();
+    QVERIFY(container);
+    auto *graphics = qobject_cast<QGraphicsView *>(container->viewport());
+    QVERIFY(graphics);
+    auto *itemView = container->controller()->view();
+    QTRY_VERIFY(!itemView->itemContextRect(0).isEmpty());
+    const QPoint position = graphics->mapFromScene(itemView->mapToScene(itemView->itemContextRect(0).center()));
+    QTest::mouseClick(graphics->viewport(), Qt::MiddleButton, Qt::NoModifier, position);
+    QTRY_COMPARE(m_mainWindow->m_tabWidget->count(), 3);
+    QCOMPARE(m_mainWindow->m_tabWidget->currentIndex(), atEnd ? 2 : 1);
+    QVERIFY(m_mainWindow->activeViewContainer() != original);
+    QCOMPARE(m_mainWindow->activeViewContainer()->url(), child);
+    QCOMPARE(original->url(), directory.url());
 }
 
 void DolphinMainWindowTest::testSiblingNavigation()

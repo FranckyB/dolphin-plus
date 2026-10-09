@@ -520,6 +520,8 @@ private:
     DolphinView *m_view;
 
     FilterBar *m_filterBar;
+    FilterBar *m_findBar = nullptr;
+    bool m_restoreFilterBarAfterFind = false;
 
     /// A bar shown at the bottom of the view whose contents depend on what the user is currently doing.
     SelectionMode::BottomBar *m_selectionModeBottomBar;

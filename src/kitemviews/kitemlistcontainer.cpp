@@ -19,6 +19,7 @@
 #include <QFontMetrics>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QKeyEvent>
 #include <QScrollBar>
 #include <QScroller>
 #include <QStyleOption>
@@ -125,6 +126,40 @@ bool KItemListContainer::enabledFrame() const
 {
     const QGraphicsView *graphicsView = qobject_cast<QGraphicsView *>(viewport());
     return graphicsView->autoFillBackground();
+}
+
+void KItemListContainer::setKeyboardSearchInput(QWidget *input)
+{
+    m_keyboardSearchInput = input;
+    connect(qApp, &QApplication::focusChanged, this, [this](QWidget *previous, QWidget *current) {
+        if (m_controller && m_keyboardSearchInput && previous && (previous == m_keyboardSearchInput || m_keyboardSearchInput->isAncestorOf(previous))
+            && current != this && (!current || !isAncestorOf(current)) && current != m_keyboardSearchInput
+            && (!current || !m_keyboardSearchInput->isAncestorOf(current))) {
+            m_controller->cancelKeyboardSearch();
+        }
+    });
+}
+
+bool KItemListContainer::event(QEvent *event)
+{
+    if (m_controller && m_controller->isPersistentKeyboardSearchActive()) {
+        QWidget *focused = QApplication::focusWidget();
+        const bool editingSearch = m_keyboardSearchInput && focused && (focused == m_keyboardSearchInput || m_keyboardSearchInput->isAncestorOf(focused));
+        if (event->type() == QEvent::Hide || (event->type() == QEvent::FocusOut && !editingSearch)) {
+            m_controller->cancelKeyboardSearch();
+        } else if (event->type() == QEvent::KeyPress || event->type() == QEvent::ShortcutOverride) {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (keyEvent->modifiers() == Qt::NoModifier
+                && (keyEvent->key() == Qt::Key_Tab || keyEvent->key() == Qt::Key_Backspace || keyEvent->key() == Qt::Key_Escape)) {
+                if (event->type() == QEvent::KeyPress) {
+                    m_controller->processEvent(event, QTransform());
+                }
+                event->accept();
+                return true;
+            }
+        }
+    }
+    return QAbstractScrollArea::event(event);
 }
 
 void KItemListContainer::keyPressEvent(QKeyEvent *event)

@@ -196,6 +196,16 @@ remote images, or unavailable dimensions fall back to native fit. The component'
 zoom bounds still apply. No Gwenview configuration is written. Changes to the
 component require running the real-plugin tests, especially fit/resizing tests.
 
+Fit mode explicitly hides the component's `Gwenview::BirdEyeView` graphics item;
+leaving Fit restores its native visibility/fade behavior. This runtime class check
+is also component-version-sensitive. New image overviews are hidden immediately
+while Fit is pending, without changing standalone Gwenview settings.
+
+A viewer-local precise timer hides the image viewport cursor after two seconds
+without mouse activity in active fullscreen mode. Mouse activity restores it;
+dragging, menus, dialogs, deactivation, fullscreen exit, and closing stop idle
+hiding. Cursor state is restored locally, without an application-wide override.
+
 Focused tests use the real installed KPart in a disposable offscreen environment:
 
 ```sh
@@ -211,6 +221,10 @@ The viewer test checks rendered pixels at landscape and portrait sizes, zoom
 actions, wheel navigation, fullscreen, unreadable-image recovery, ownership,
 exclusive zoom modes, fit enlargement/resizing, preference persistence/cancel,
 shortcut rebinding/default restoration, and preservation of Gwenview settings.
+Overview tests cover Fit, zooming, resizing, mouse movement, and image changes.
+Cursor tests cover the elapsed idle delay, mouse restoration, component cursor
+changes, dragging, fullscreen exit, dialog isolation, and closing. Physical cursor
+presentation under the desktop compositor still needs real-session confirmation.
 Navigation checks include Home/End, both boundary directions, explicit first-image
 sibling jumps, natural ordering, empty/hidden/nested entries, symlink paths,
 outer boundaries, custom sibling bindings, repeated triggers, and cancellation.

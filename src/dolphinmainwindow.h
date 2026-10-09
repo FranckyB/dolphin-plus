@@ -212,7 +212,7 @@ public Q_SLOTS:
     void quit();
 
     /**
-     * Opens a new tab in the background showing the URL \a url.
+     * Opens and activates a new tab showing the URL \a url.
      * @return A pointer to the opened DolphinTabPage.
      */
     DolphinTabPage *openNewTab(const QUrl &url);

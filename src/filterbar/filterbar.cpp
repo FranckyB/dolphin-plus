@@ -21,10 +21,12 @@
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QPalette>
+#include <QSignalBlocker>
 #include <QToolButton>
 
-FilterBar::FilterBar(QWidget *parent)
+FilterBar::FilterBar(QWidget *parent, Mode mode)
     : AnimatedHeightWidget{parent}
+    , m_mode(mode)
 {
     QWidget *contentsContainer = prepareContentsContainer();
 
@@ -41,7 +43,12 @@ FilterBar::FilterBar(QWidget *parent)
     m_filterInput->setLayoutDirection(Qt::LeftToRight);
     m_filterInput->setClearButtonEnabled(true);
     m_filterInput->setPlaceholderText(i18n("Filter…"));
-    connect(m_filterInput, &QLineEdit::textChanged, this, &FilterBar::filterChanged);
+    if (m_mode == Mode::Filter) {
+        connect(m_filterInput, &QLineEdit::textChanged, this, &FilterBar::filterChanged);
+    } else {
+        connect(m_filterInput, &QLineEdit::textEdited, this, &FilterBar::findTextEdited);
+        m_filterInput->installEventFilter(this);
+    }
     connect(m_filterInput, &QLineEdit::textChanged, this, &FilterBar::updateInvalidPatternView);
     setFocusProxy(m_filterInput);
 
@@ -89,6 +96,19 @@ FilterBar::FilterBar(QWidget *parent)
 
     setTabOrder({m_lockButton, m_caseSensitiveButton, m_filterModeComboBox, closeButton, m_filterInput});
 
+    if (m_mode == Mode::Find) {
+        m_lockButton->hide();
+        m_caseSensitiveButton->hide();
+        m_filterModeComboBox->hide();
+        m_filterInput->setPlaceholderText(i18nc("@info:placeholder", "Find…"));
+        m_filterInput->setAccessibleName(i18nc("@label:textbox", "Find in filenames"));
+        m_filterInput->addAction(QIcon::fromTheme(QStringLiteral("edit-find")), QLineEdit::LeadingPosition);
+        m_invalidPatternAction->setToolTip(i18nc("@info:tooltip", "No matching files"));
+        closeButton->setToolTip(i18nc("@info:tooltip", "Close Find Bar"));
+        closeButton->setObjectName(QStringLiteral("close_find_bar"));
+        return;
+    }
+
     KConfigGroup filterBarConfig(KSharedConfig::openStateConfig(), QStringLiteral("FilterBar"));
     bool caseSensitiveEnabled = filterBarConfig.readEntry("caseSensitive", false);
     int filterModeComboBoxIndex = filterBarConfig.readEntry("filterMode", m_filterModeComboBox->findData(KFileItemModelFilter::FilterMode::Glob));
@@ -98,9 +118,53 @@ FilterBar::FilterBar(QWidget *parent)
 
 FilterBar::~FilterBar()
 {
+    if (m_mode == Mode::Find) {
+        return;
+    }
     KConfigGroup filterBarConfig(KSharedConfig::openStateConfig(), QStringLiteral("FilterBar"));
     filterBarConfig.writeEntry("caseSensitive", this->m_caseSensitiveButton->isChecked());
     filterBarConfig.writeEntry("filterMode", this->m_filterModeComboBox->currentIndex());
+}
+
+QWidget *FilterBar::inputWidget() const
+{
+    return m_filterInput;
+}
+
+void FilterBar::setFindText(const QString &text, bool found)
+{
+    const QSignalBlocker blocker(m_filterInput);
+    if (m_filterInput->text() != text) {
+        m_filterInput->setText(text);
+    }
+    QPalette colors;
+    if (!found && !text.isEmpty()) {
+        KColorScheme::adjustBackground(colors, KColorScheme::NegativeBackground);
+    }
+    m_filterInput->setPalette(colors);
+    m_invalidPatternAction->setVisible(!found && !text.isEmpty());
+}
+
+bool FilterBar::eventFilter(QObject *watched, QEvent *event)
+{
+    if (m_mode == Mode::Find && watched == m_filterInput && (event->type() == QEvent::KeyPress || event->type() == QEvent::ShortcutOverride)) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->modifiers() == Qt::NoModifier
+            && (key->key() == Qt::Key_Tab || key->key() == Qt::Key_Escape || key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter)) {
+            if (event->type() == QEvent::KeyPress) {
+                if (key->key() == Qt::Key_Tab) {
+                    Q_EMIT nextMatchRequested();
+                } else if (key->key() == Qt::Key_Escape) {
+                    Q_EMIT closeRequest();
+                } else {
+                    Q_EMIT focusViewRequest();
+                }
+            }
+            event->accept();
+            return true;
+        }
+    }
+    return AnimatedHeightWidget::eventFilter(watched, event);
 }
 
 void FilterBar::closeFilterBar()
@@ -151,6 +215,9 @@ void FilterBar::slotToggleLockButton(bool checked)
 
 void FilterBar::updateInvalidPatternView()
 {
+    if (m_mode == Mode::Find) {
+        return;
+    }
     bool valid = true;
 
     KFileItemModelFilter::FilterMode current_filter_mode = filterMode();
@@ -184,7 +251,7 @@ void FilterBar::updateInvalidPatternView()
 
 void FilterBar::showEvent(QShowEvent *event)
 {
-    if (!event->spontaneous()) {
+    if (m_mode == Mode::Filter && !event->spontaneous()) {
         m_filterInput->setFocus();
     }
 }

@@ -305,6 +305,15 @@ void KStandardItemListWidget::setLayout(Layout layout)
     }
 }
 
+void KStandardItemListWidget::setKeyboardSearchText(const QString &text)
+{
+    if (m_keyboardSearchText != text) {
+        m_keyboardSearchText = text;
+        m_dirtyContent = true;
+        update();
+    }
+}
+
 void KStandardItemListWidget::setHighlightEntireRow(bool highlightEntireRow)
 {
     if (m_highlightEntireRow != highlightEntireRow) {
@@ -413,7 +422,11 @@ void KStandardItemListWidget::paint(QPainter *painter, const QStyleOptionGraphic
         return;
     }
 
-    painter->drawStaticText(textInfo->pos, textInfo->staticText);
+    if (m_hasSearchHighlight) {
+        m_searchTextLayout.draw(painter, textInfo->pos);
+    } else {
+        painter->drawStaticText(textInfo->pos, textInfo->staticText);
+    }
 
     bool clipAdditionalInfoBounds = false;
     if (m_supportsItemExpanding && m_sortedVisibleRoles.count() > 1) {
@@ -1209,6 +1222,69 @@ void KStandardItemListWidget::updatePixmapCache()
     }
 }
 
+void KStandardItemListWidget::updateSearchHighlight()
+{
+    m_hasSearchHighlight = false;
+    m_searchTextLayout.clearLayout();
+    const TextInfo *name = m_textInfo.value("text");
+    if (!name || m_keyboardSearchText.isEmpty()) {
+        return;
+    }
+    QString query;
+    for (const auto character : m_keyboardSearchText.normalized(QString::NormalizationForm_D)) {
+        if (!character.isMark()) {
+            query.append(character);
+        }
+    }
+    if (query.isEmpty()) {
+        return;
+    }
+    const QString text = name->staticText.text();
+    QString normalized;
+    QList<int> sourcePositions;
+    for (int source = 0; source < text.size(); ++source) {
+        for (const auto character : QString(text.at(source)).normalized(QString::NormalizationForm_D)) {
+            if (!character.isMark() && character != QChar(0x200b)) {
+                normalized.append(character);
+                sourcePositions.append(source);
+            }
+        }
+    }
+    QList<QTextLayout::FormatRange> formats;
+    int match = normalized.indexOf(query, 0, Qt::CaseInsensitive);
+    while (match >= 0) {
+        QTextLayout::FormatRange range;
+        range.start = sourcePositions.at(match);
+        int end = sourcePositions.at(match + query.size() - 1) + 1;
+        while (end < text.size() && text.at(end).isMark()) {
+            ++end;
+        }
+        range.length = end - range.start;
+        range.format.setBackground(Qt::yellow);
+        range.format.setForeground(Qt::black);
+        formats.append(range);
+        match = normalized.indexOf(query, match + query.size(), Qt::CaseInsensitive);
+    }
+    if (formats.isEmpty()) {
+        return;
+    }
+    m_searchTextLayout.setText(text);
+    m_searchTextLayout.setFont(m_customizedFont);
+    m_searchTextLayout.setTextOption(name->staticText.textOption());
+    m_searchTextLayout.setFormats(formats);
+    m_searchTextLayout.setCacheEnabled(true);
+    m_searchTextLayout.beginLayout();
+    qreal top = 0;
+    QTextLine line;
+    while ((line = m_searchTextLayout.createLine()).isValid()) {
+        line.setLineWidth(name->staticText.textWidth() >= 0 ? name->staticText.textWidth() : name->staticText.size().width());
+        line.setPosition(QPointF(0, top));
+        top += line.height();
+    }
+    m_searchTextLayout.endLayout();
+    m_hasSearchHighlight = true;
+}
+
 void KStandardItemListWidget::updateTextsCache()
 {
     QTextOption textOption;
@@ -1254,6 +1330,8 @@ void KStandardItemListWidget::updateTextsCache()
         Q_ASSERT(false);
         break;
     }
+
+    updateSearchHighlight();
 
     const TextInfo *ratingTextInfo = m_textInfo.value("rating");
     if (ratingTextInfo) {

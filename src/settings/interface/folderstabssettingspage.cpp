@@ -118,6 +118,11 @@ FoldersTabsSettingsPage::FoldersTabsSettingsPage(QWidget *parent)
     m_filterBar = new QCheckBox(i18nc("@option:check Window Startup Settings", "Show filter bar"));
     topLayout->addRow(QString(), m_filterBar);
 
+    m_keyboardSearchMatchAnywhere = new QCheckBox(i18nc("@option:check", "Match any part of the filename"));
+    m_keyboardSearchMatchAnywhere->setObjectName(QStringLiteral("keyboard_search_match_anywhere"));
+    topLayout->addRow(i18nc("@label:checkbox", "Typing to find:"), m_keyboardSearchMatchAnywhere);
+    connect(m_keyboardSearchMatchAnywhere, &QCheckBox::toggled, this, &FoldersTabsSettingsPage::changed);
+
     topLayout->addItem(new QSpacerItem(0, Dolphin::VERTICAL_SPACER_HEIGHT, QSizePolicy::Fixed, QSizePolicy::Fixed));
 
     // Tabs properties
@@ -223,6 +228,7 @@ void FoldersTabsSettingsPage::applySettings()
     settings->setRememberOpenedTabs(m_rememberOpenedTabsRadioButton->isChecked());
     settings->setSplitView(m_splitView->isChecked());
     settings->setFilterBar(m_filterBar->isChecked());
+    settings->setKeyboardSearchMatchAnywhere(m_keyboardSearchMatchAnywhere->isChecked());
     settings->setOpenExternallyCalledFolderInNewTab(m_openExternallyCalledFolderInNewTab->isChecked());
     settings->setShowFullPathInTitlebar(m_showFullPathInTitlebar->isChecked());
 
@@ -310,6 +316,7 @@ void FoldersTabsSettingsPage::loadSettings()
     m_homeUrlRadioButton->setChecked(!GeneralSettings::rememberOpenedTabs());
     m_splitView->setChecked(GeneralSettings::splitView());
     m_filterBar->setChecked(GeneralSettings::filterBar());
+    m_keyboardSearchMatchAnywhere->setChecked(GeneralSettings::keyboardSearchMatchAnywhere());
     m_showFullPathInTitlebar->setChecked(GeneralSettings::showFullPathInTitlebar());
     m_openExternallyCalledFolderInNewTab->setChecked(GeneralSettings::openExternallyCalledFolderInNewTab());
 

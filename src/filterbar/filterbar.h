@@ -27,8 +27,14 @@ class FilterBar : public AnimatedHeightWidget
     Q_OBJECT
 
 public:
-    explicit FilterBar(QWidget *parent = nullptr);
+    enum class Mode {
+        Filter,
+        Find
+    };
+    explicit FilterBar(QWidget *parent = nullptr, Mode mode = Mode::Filter);
     ~FilterBar() override;
+    QWidget *inputWidget() const;
+    void setFindText(const QString &text, bool found);
 
     /** Called by view container to hide this **/
     void closeFilterBar();
@@ -50,6 +56,8 @@ public Q_SLOTS:
     void slotToggleLockButton(bool checked);
 
 Q_SIGNALS:
+    void findTextEdited(const QString &text);
+    void nextMatchRequested();
     /**
      * Signal that reports the name filter has been
      * changed to \a nameFilter.
@@ -77,6 +85,7 @@ Q_SIGNALS:
     void focusViewRequest();
 
 protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
     void showEvent(QShowEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
 
@@ -84,6 +93,7 @@ protected:
     int preferredHeight() const override;
 
 private:
+    Mode m_mode;
     QLineEdit *m_filterInput;
     QToolButton *m_lockButton;
     QToolButton *m_caseSensitiveButton;

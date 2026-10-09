@@ -68,6 +68,7 @@ private:
 
     QCheckBox *m_splitView;
     QCheckBox *m_filterBar;
+    QCheckBox *m_keyboardSearchMatchAnywhere;
     QCheckBox *m_showFullPathInTitlebar;
     QCheckBox *m_openExternallyCalledFolderInNewTab;
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QCursor>
 #include <QList>
 #include <QPointer>
 #include <QSize>
@@ -19,6 +20,7 @@ class ListJob;
 class KActionCollection;
 class KMessageWidget;
 class QGraphicsWidget;
+class QTimer;
 
 class DolphinImageViewer : public QWidget
 {
@@ -68,8 +70,15 @@ private:
     void openCurrentImage();
     void triggerPartAction(const char *name);
     void configureViewer();
+    void restartCursorTimer();
+    void restoreCursor();
 
     KParts::ReadOnlyPart *m_part = nullptr;
+    QTimer *m_cursorTimer = nullptr;
+    QPointer<QWidget> m_cursorWidget;
+    QCursor m_savedCursor;
+    bool m_cursorWasExplicit = false;
+    bool m_cursorHidden = false;
     KActionCollection *m_actions = nullptr;
     KMessageWidget *m_navigationMessage = nullptr;
     QPointer<KIO::ListJob> m_siblingJob;

@@ -24,6 +24,7 @@ private Q_SLOTS:
     void testAbortedKeyboardSearch();
     void testRepeatedKeyPress();
     void testPressShift();
+    void testPersistentSearch();
 
 private:
     KItemListKeyboardSearchManager m_keyboardSearchManager;
@@ -98,8 +99,37 @@ void KItemListKeyboardSearchManagerTest::initTestCase()
 
 void KItemListKeyboardSearchManagerTest::init()
 {
+    m_keyboardSearchManager.setPersistentSearch(false);
     // Make sure that the previous search string is cleared
     m_keyboardSearchManager.cancelSearch();
+}
+
+void KItemListKeyboardSearchManagerTest::testPersistentSearch()
+{
+    QSignalSpy matches(&m_keyboardSearchManager, &KItemListKeyboardSearchManager::changeCurrentItem);
+    QSignalSpy changes(&m_keyboardSearchManager, &KItemListKeyboardSearchManager::searchTextChanged);
+    m_keyboardSearchManager.setPersistentSearch(true);
+    m_keyboardSearchManager.addKeys("unreal");
+    verifySignal(matches, "unreal", false);
+    QCOMPARE(changes.takeLast().first().toString(), QStringLiteral("unreal"));
+    m_keyboardSearchManager.setTimeout(0);
+    QVERIFY(m_keyboardSearchManager.isSearchAsYouTypeActive());
+    m_keyboardSearchManager.nextMatch();
+    verifySignal(matches, "unreal", true);
+    m_keyboardSearchManager.backspace();
+    verifySignal(matches, "unrea", false);
+    m_keyboardSearchManager.cancelSearch();
+    QVERIFY(!m_keyboardSearchManager.isSearchAsYouTypeActive());
+    QCOMPARE(changes.takeLast().first().toString(), QString());
+    m_keyboardSearchManager.nextMatch();
+    QCOMPARE(matches.count(), 0);
+    m_keyboardSearchManager.addKeys("a");
+    m_keyboardSearchManager.backspace();
+    QVERIFY(!m_keyboardSearchManager.isSearchAsYouTypeActive());
+    m_keyboardSearchManager.addKeys(QStringLiteral("e\u0301"));
+    m_keyboardSearchManager.backspace();
+    QVERIFY(!m_keyboardSearchManager.isSearchAsYouTypeActive());
+    m_keyboardSearchManager.setTimeout(1000);
 }
 
 void KItemListKeyboardSearchManagerTest::testBasicKeyboardSearch()

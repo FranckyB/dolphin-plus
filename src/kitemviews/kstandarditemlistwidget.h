@@ -11,9 +11,10 @@
 #include "kitemviews/kitemlistwidget.h"
 
 #include <QPixmap>
-#include <QPointer>
 #include <QPointF>
+#include <QPointer>
 #include <QStaticText>
+#include <QTextLayout>
 
 class KItemListRoleEditor;
 class KItemListStyleOption;
@@ -99,6 +100,7 @@ public:
 
     void setHighlightEntireRow(bool highlightEntireRow);
     bool highlightEntireRow() const;
+    void setKeyboardSearchText(const QString &text);
 
     void setSupportsItemExpanding(bool supportsItemExpanding);
     bool supportsItemExpanding() const;
@@ -211,6 +213,7 @@ private:
     void updatePixmapCache();
 
     void updateTextsCache();
+    void updateSearchHighlight();
     void updateIconsLayoutTextCache();
     void updateCompactLayoutTextCache();
     void updateDetailsLayoutTextCache();
@@ -276,6 +279,9 @@ private:
     QFontMetrics m_customizedFontMetrics;
     bool m_isExpandable;
     bool m_highlightEntireRow;
+    QString m_keyboardSearchText;
+    QTextLayout m_searchTextLayout;
+    bool m_hasSearchHighlight = false;
     bool m_supportsItemExpanding;
 
     bool m_dirtyLayout;

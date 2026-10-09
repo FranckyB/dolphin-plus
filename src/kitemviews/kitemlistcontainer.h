@@ -12,6 +12,7 @@
 #include "dolphin_export.h"
 
 #include <QAbstractScrollArea>
+#include <QPointer>
 
 class KItemListController;
 class KItemListSmoothScroller;
@@ -43,8 +44,10 @@ public:
 
     void setEnabledFrame(bool enable);
     bool enabledFrame() const;
+    void setKeyboardSearchInput(QWidget *input);
 
 protected:
+    bool event(QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
     void showEvent(QShowEvent *event) override;
@@ -76,6 +79,7 @@ private:
 
 private:
     KItemListController *m_controller;
+    QPointer<QWidget> m_keyboardSearchInput;
 
     KItemListSmoothScroller *m_horizontalSmoothScroller;
     KItemListSmoothScroller *m_verticalSmoothScroller;

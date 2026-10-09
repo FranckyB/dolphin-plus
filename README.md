@@ -7,6 +7,27 @@ See [Dolphin Plus development](DOLPHIN-PLUS.md) for build, launch, and verificat
 instructions. Native sibling navigation and an integrated image viewer are
 implemented; grouping and scripting remain planned work.
 
+## Tabs and Type-to-Find
+
+Opening a new tab, including middle-clicking a folder, switches to that tab.
+
+Type in the file view to find any part of a filename. Matching text is
+highlighted without hiding other files. Matching ignores case and accents.
+Tab advances to the next match and wraps at the end; Backspace edits the query.
+Escape ends the search while keeping the selected file. Normal navigation,
+clicking in the view, changing folders, or leaving the pane also ends the search.
+
+Typing automatically opens a Find field in the filter-bar position without
+taking focus from the file list. Click the field to edit or paste a query;
+Tab still advances through matches, and Enter returns focus to the file list.
+Escape, the close button, or clearing the query closes Find. An existing filter
+is preserved and its bar returns when Find closes; Find never changes its
+pattern, case sensitivity, or matching mode.
+
+This is enabled by default. To restore Dolphin's timed, prefix-only search and
+normal Tab focus navigation, turn off **Match any part of the filename** under
+**Settings > Configure Dolphin Plus > Interface > Folders & Tabs > Typing to find**.
+
 ## Native Sibling Navigation
 
 Use **Go > Previous Sibling Folder** or **Go > Next Sibling Folder** to navigate
@@ -39,6 +60,11 @@ the component; supported image formats depend on its installed decoders.
 	and reveal the last viewed image, navigating to its folder if needed.
 - Ctrl+wheel: zoom. `0`: fit to window. `1`: actual size. Drag a zoomed image to pan.
 - F11: toggle fullscreen. Right-click for viewer controls and file actions.
+
+In fullscreen, the cursor hides after two seconds without mouse activity and
+returns when you move or use the mouse. Menus and dialogs keep a visible cursor.
+The overview map stays hidden in Zoom to Fit; it remains available when zoomed
+in and only part of the image is visible.
 
 Use **Settings > Configure Dolphin Plus > Image Viewer**, or right-click the
 image and choose **Configure Image Viewer**, to set fullscreen startup, choose

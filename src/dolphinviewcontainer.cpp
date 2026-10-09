@@ -119,6 +119,37 @@ DolphinViewContainer::DolphinViewContainer(const QUrl &url, QWidget *parent)
 
     // Initialize the main view
     m_view = new DolphinView(url, this);
+    m_findBar = new FilterBar(this, FilterBar::Mode::Find);
+    m_findBar->setObjectName(QStringLiteral("type_find_feedback"));
+    m_findBar->setVisible(false, WithoutAnimation);
+    m_view->setKeyboardSearchInput(m_findBar);
+    connect(m_findBar, &FilterBar::findTextEdited, m_view, &DolphinView::setKeyboardSearchText);
+    connect(m_findBar, &FilterBar::nextMatchRequested, m_view, &DolphinView::nextKeyboardSearchMatch);
+    connect(m_findBar, &FilterBar::focusViewRequest, this, &DolphinViewContainer::requestFocus);
+    connect(m_findBar, &FilterBar::closeRequest, this, [this]() {
+        m_view->cancelKeyboardSearch();
+        requestFocus();
+    });
+    connect(m_view, &DolphinView::keyboardSearchChanged, this, [this](const QString &text, bool found) {
+        const bool wasFinding = m_findBar->isEnabled();
+        const bool finding = !text.isEmpty();
+        QPointer<QWidget> focused = QApplication::focusWidget();
+        const bool editingFind = focused && (focused == m_findBar || m_findBar->isAncestorOf(focused));
+        m_findBar->setFindText(text, found);
+        if (finding && !wasFinding) {
+            m_restoreFilterBarAfterFind = m_filterBar->isEnabled();
+            m_filterBar->setVisible(false, WithoutAnimation);
+        }
+        m_findBar->setVisible(finding, WithoutAnimation);
+        if (!finding && wasFinding) {
+            m_filterBar->setVisible(m_restoreFilterBarAfterFind, WithoutAnimation);
+            if (editingFind) {
+                m_view->setFocus();
+            } else if (focused) {
+                focused->setFocus();
+            }
+        }
+    });
     connect(m_view, &DolphinView::urlChanged, m_filterBar, &FilterBar::clearIfUnlocked);
     connect(m_view, &DolphinView::urlChanged, m_messageWidget, &KMessageWidget::hide);
     // m_urlNavigator stays in sync with m_view's location changes and
@@ -188,6 +219,7 @@ DolphinViewContainer::DolphinViewContainer(const QUrl &url, QWidget *parent)
     m_topLayout->addWidget(m_messageWidget, positionFor.messageWidget, 0);
     m_topLayout->addWidget(m_view, positionFor.view, 0);
     m_topLayout->addWidget(m_filterBar, positionFor.filterBar, 0);
+    m_topLayout->addWidget(m_findBar, positionFor.filterBar, 0);
     if (GeneralSettings::showStatusBar() == GeneralSettings::EnumShowStatusBar::FullWidth) {
         m_topLayout->addWidget(m_statusBar, positionFor.statusBar, 0);
     }
@@ -546,6 +578,9 @@ void DolphinViewContainer::readSettings()
 
 bool DolphinViewContainer::isFilterBarVisible() const
 {
+    if (m_findBar && m_findBar->isEnabled()) {
+        return m_restoreFilterBarAfterFind;
+    }
     return m_filterBar->isEnabled(); // Gets disabled in AnimatedHeightWidget while animating towards a hidden state.
 }
 
@@ -646,6 +681,7 @@ void DolphinViewContainer::setUrl(const QUrl &newUrl)
 void DolphinViewContainer::setFilterBarVisible(bool visible)
 {
     Q_ASSERT(m_filterBar);
+    m_view->cancelKeyboardSearch();
     if (visible) {
         m_view->hideToolTip(ToolTipManager::HideBehavior::Instantly);
         m_filterBar->setVisible(true, WithAnimation);

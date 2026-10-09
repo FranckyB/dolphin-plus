@@ -34,6 +34,7 @@ public:
      * Add \a keys to the text buffer used for searching.
      */
     void addKeys(const QString &keys);
+    void setSearchText(const QString &text);
 
     /**
      * Sets the delay after which the search is cancelled to \a milliseconds.
@@ -45,6 +46,10 @@ public:
     qint64 timeout() const;
 
     void cancelSearch();
+    void setPersistentSearch(bool enabled);
+    bool persistentSearch() const;
+    void nextMatch();
+    void backspace();
 
     /**
      * @return \c true if search as you type is active, or \c false otherwise.
@@ -57,6 +62,7 @@ public Q_SLOTS:
     void slotSelectionChanged(const KItemSet &current, const KItemSet &previous);
 
 Q_SIGNALS:
+    void searchTextChanged(const QString &text);
     /**
      * Is emitted if the current item should be changed corresponding
      * to \a text.
@@ -77,6 +83,7 @@ private:
     /** Time in milliseconds in which a key press is considered as a continuation of the previous search input. */
     qint64 m_timeout;
     QString m_lastSuccessfulSearch;
+    bool m_persistentSearch = false;
 };
 
 #endif
