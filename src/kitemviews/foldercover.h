@@ -33,6 +33,7 @@ struct Settings {
 using Cancellation = std::shared_ptr<std::atomic_bool>;
 DOLPHIN_EXPORT Settings loadSettings();
 DOLPHIN_EXPORT void saveSettings(const Settings &settings);
+DOLPHIN_EXPORT bool usesCustomIcon(const QUrl &directory, const Settings &settings);
 DOLPHIN_EXPORT QImage generate(const QUrl &directory, const Settings &settings, const QSize &size, const Cancellation &cancel);
 DOLPHIN_EXPORT QImage compose(const QImage &folder, const QImage &source, const Settings &settings, const QSize &size);
 }

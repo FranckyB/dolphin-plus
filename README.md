@@ -84,6 +84,10 @@ Plus window. It uses Gwenview's embeddable image component, without Gwenview's
 folder browser, sidebars, or toolbars. The installed `gwenview` package supplies
 the component; supported image formats depend on its installed decoders.
 
+OpenEXR (`.exr`) is also accepted when the `kimageformats` EXR decoder is installed,
+even when absent from Gwenview's advertised formats. This is an image preview,
+not an HDR grading tool; Gwenview may not apply color profiles to floating-point EXR images.
+
 - Mouse wheel or Left/Right: previous/next image in the originating pane's
 	displayed order, respecting its filter and sorting at the time of opening.
 - Home/End: first/last image in the current folder's image list.
@@ -91,7 +95,7 @@ the component; supported image formats depend on its installed decoders.
 	Before the first: last image in the previous sibling folder containing images.
 - Previous/Next Sibling Folder: jump directly to the first image in that sibling
 	direction. Assign shortcuts in Image Viewer preferences; none are reserved by default.
-- Enter or Escape: close, return to the originating tab and pane, and select
+- Enter, Escape, or left double-click: close, return to the originating tab and pane, and select
 	and reveal the last viewed image, navigating to its folder if needed.
 - Ctrl+wheel: zoom. `0`: fit to window. `1`: actual size. Drag a zoomed image to pan.
 - F11: toggle fullscreen. Right-click for viewer controls and file actions.

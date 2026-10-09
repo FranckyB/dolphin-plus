@@ -7,6 +7,7 @@
 #include <KConfigGroup>
 #include <QComboBox>
 #include <QDir>
+#include <QEvent>
 #include <QFile>
 #include <QLabel>
 #include <QLineEdit>
@@ -20,6 +21,16 @@
 class FolderCoverTest : public QObject
 {
     Q_OBJECT
+
+    int m_previewJobsCreated = 0;
+
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::ChildAdded) {
+            ++m_previewJobsCreated;
+        }
+        return QObject::eventFilter(watched, event);
+    }
 
 private Q_SLOTS:
     void cacheInvalidation()
@@ -159,6 +170,60 @@ private Q_SLOTS:
         updater.setEnabledPlugins(updater.enabledPlugins());
         updater.setPreviewsShown(false);
         QTRY_VERIFY(model.data(0).value("iconPixmap").value<QPixmap>().isNull());
+    }
+
+    void existingImageIcon_data()
+    {
+        QTest::addColumn<bool>("absolutePath");
+        QTest::addColumn<bool>("respectCustomIcons");
+        QTest::newRow("relative-keep-icons") << false << true;
+        QTest::newRow("relative-replace-themed-icons") << false << false;
+        QTest::newRow("absolute-keep-icons") << true << true;
+        QTest::newRow("absolute-replace-themed-icons") << true << false;
+    }
+
+    void existingImageIcon()
+    {
+        QFETCH(bool, absolutePath);
+        QFETCH(bool, respectCustomIcons);
+        const auto previous = FolderCover::loadSettings();
+        const auto restore = qScopeGuard([previous]() {
+            FolderCover::saveSettings(previous);
+        });
+        FolderCover::Settings settings;
+        settings.respectCustomIcons = respectCustomIcons;
+        FolderCover::saveSettings(settings);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QVERIFY(QDir(directory.path()).mkdir(QStringLiteral("child")));
+        const QString child = directory.filePath(QStringLiteral("child"));
+        const QString artwork = child + QStringLiteral("/.folder.png");
+        QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QVERIFY(image.save(artwork));
+        image.fill(Qt::red);
+        QVERIFY(image.save(child + QStringLiteral("/fanart.png")));
+        KConfig metadata(child + QStringLiteral("/.directory"), KConfig::SimpleConfig);
+        metadata.group(QStringLiteral("Desktop Entry")).writeEntry("Icon", absolutePath ? artwork : QStringLiteral("./.folder.png"));
+        metadata.sync();
+        const auto url = QUrl::fromLocalFile(child);
+        QVERIFY(FolderCover::usesCustomIcon(url, settings));
+        QVERIFY(FolderCover::generate(url, settings, QSize(256, 256), std::make_shared<std::atomic_bool>(false)).isNull());
+        KFileItemModel model;
+        KFileItemModelRolesUpdater updater(&model);
+        m_previewJobsCreated = 0;
+        updater.installEventFilter(this);
+        updater.setIconSize(QSize(256, 256));
+        updater.setPreviewsShown(true);
+        updater.setVisibleIndexRange(0, 1);
+        model.loadDirectory(QUrl::fromLocalFile(directory.path()));
+        QTRY_COMPARE(model.count(), 1);
+        QTRY_COMPARE(QDir::cleanPath(model.data(0).value("iconName").toString()), artwork);
+        QVERIFY(model.data(0).value("iconPixmap").value<QPixmap>().isNull());
+        QCOMPARE(QImage(model.data(0).value("iconName").toString()).pixelColor(40, 30), QColor(Qt::blue));
+        QCOMPARE(m_previewJobsCreated, 0);
+        QVERIFY(QFile::remove(artwork));
+        QCOMPARE(FolderCover::usesCustomIcon(url, settings), respectCustomIcons);
     }
 
     void generation()

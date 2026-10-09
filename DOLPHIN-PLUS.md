@@ -280,9 +280,14 @@ level, and 32 decoding attempts per cover. Each media subprocess has a
 10-second timeout. Generation runs on a bounded worker pool and is cancelled
 when its view no longer needs it.
 
-**Keep existing custom folder icons** is enabled by default: a nonempty `Icon`
-entry in `.directory` takes precedence. Uncheck it to preview folders already
-customized by the Python generator without modifying those files. No covers,
+An existing image referenced by `Icon` in `.directory` always takes precedence
+over generated covers. Absolute and folder-relative paths are supported. These
+folders use their native icon directly, without queuing a cover worker, scanning
+media, or creating a thumbnail cache entry.
+
+**Keep existing theme-based folder icons** is enabled by default and also
+preserves named icons such as `folder-red`. Unchecking it permits generated
+covers for those icons, but never overrides an existing image file. No covers,
 metadata, or temporary media files are written into browsed folders.
 
 Settings live in `dolphinplusrc` under `FolderCovers`; composed images use the
@@ -328,7 +333,7 @@ Repeated navigation is ignored while searching. Home/End, list replacement,
 closing, and owner destruction cancel pending jobs.
 
 Ctrl+wheel zooms, `0` fits, `1` shows actual size, and F11 toggles fullscreen.
-Enter, Escape, or the window close button return to the original tab and split
+Enter, Escape, left double-click, or the window close button return to the original tab and split
 pane. A different destination is loaded once with deferred current-item and exact
 selection requests; its name filter is cleared. Same-folder return selects and
 reveals without a reload, clearing a name filter only if it hides the image.
@@ -337,6 +342,10 @@ cancel that session, and pane/tab destruction also destroys its viewer. Deleted
 local files do not replace the selection or navigate the pane.
 
 Supported formats follow the plugin metadata and installed image decoders.
+OpenEXR (`image/x-exr`) additionally accepts the installed Qt EXR decoder even
+when absent from the plugin metadata. This shared check covers opening, the
+current image list, and sibling-folder navigation. The real-plugin EXR test
+checks MIME detection and rendered pixels; HDR color accuracy is not guaranteed.
 Unsupported files and a missing plugin retain normal external opening; plugin
 construction failure reports a warning before falling back. Open With and
 multi-file activation remain external. The snapshot does not live-update after

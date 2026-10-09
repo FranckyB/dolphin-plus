@@ -27,6 +27,7 @@
 #include <QGraphicsWidget>
 #include <QImageReader>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QPushButton>
 #include <QScopedValueRollback>
@@ -377,6 +378,9 @@ bool DolphinImageViewer::supportsMimeType(const QString &mimeType)
         return false;
     }
     static const auto metadata = KPluginMetaData::findPluginById(QStringLiteral("kf6/parts"), QStringLiteral("gvpart"));
+    if (mimeType == QLatin1String("image/x-exr")) {
+        return metadata.isValid() && QImageReader::supportedMimeTypes().contains("image/x-exr");
+    }
     return metadata.isValid() && metadata.supportsMimeType(mimeType);
 }
 
@@ -669,6 +673,12 @@ bool DolphinImageViewer::eventFilter(QObject *watched, QEvent *event)
         break;
     default:
         break;
+    }
+
+    if (event->type() == QEvent::MouseButtonDblClick && static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton) {
+        event->accept();
+        close();
+        return true;
     }
 
     if (event->type() == QEvent::ContextMenu) {

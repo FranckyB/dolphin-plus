@@ -18,6 +18,8 @@
 #include <QGraphicsView>
 #include <QGraphicsWidget>
 #include <QImage>
+#include <QImageReader>
+#include <QMimeDatabase>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -47,6 +49,28 @@ private Q_SLOTS:
         KConfigGroup shortcuts(KSharedConfig::openConfig(QStringLiteral("dolphinplusrc")), QStringLiteral("ImageViewer Shortcuts"));
         shortcuts.deleteGroup();
         shortcuts.sync();
+    }
+
+    void testExr()
+    {
+        const auto mimeType = QMimeDatabase().mimeTypeForFile(QStringLiteral("image.exr"), QMimeDatabase::MatchExtension);
+        const bool hasDecoder = QImageReader::supportedMimeTypes().contains("image/x-exr");
+        QCOMPARE(DolphinImageViewer::supportsMimeType(mimeType.name()), hasDecoder);
+        if (!hasDecoder) {
+            QSKIP("The OpenEXR image decoder is not installed.");
+        }
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QUrl imageUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("image.exr")));
+        QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(imageUrl.toLocalFile(), "exr"));
+        QCOMPARE(QMimeDatabase().mimeTypeForFile(imageUrl.toLocalFile()).name(), mimeType.name());
+        DolphinImageViewer viewer;
+        viewer.setAttribute(Qt::WA_DeleteOnClose, false);
+        QVERIFY(viewer.setImages({imageUrl}, imageUrl));
+        viewer.show();
+        QTRY_COMPARE(viewer.grab().toImage().pixelColor(viewer.rect().center()), QColor(Qt::red));
     }
 
     void testDisplayAndReturn()
@@ -131,6 +155,49 @@ private Q_SLOTS:
         QCOMPARE(returned.count(), 1);
         QCOMPARE(returned.first().first().toUrl(), first);
         QVERIFY(!viewer.isVisible());
+    }
+
+    void testDoubleClickReturns_data()
+    {
+        QTest::addColumn<bool>("fullscreen");
+        QTest::addColumn<bool>("background");
+        QTest::newRow("windowed-image") << false << false;
+        QTest::newRow("windowed-background") << false << true;
+        QTest::newRow("fullscreen-image") << true << false;
+        QTest::newRow("fullscreen-background") << true << true;
+    }
+
+    void testDoubleClickReturns()
+    {
+        QFETCH(bool, fullscreen);
+        QFETCH(bool, background);
+        QTemporaryDir directory;
+        const QUrl imageUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("image.png")));
+        QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(imageUrl.toLocalFile()));
+        DolphinImageViewer viewer;
+        viewer.setAttribute(Qt::WA_DeleteOnClose, false);
+        QVERIFY(viewer.setImages({imageUrl}, imageUrl, imageUrl.adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash)));
+        viewer.showViewer();
+        if (fullscreen) {
+            viewer.actionCollection()->action(QStringLiteral("viewer_fullscreen"))->trigger();
+        }
+        QTRY_VERIFY(viewer.isActiveWindow());
+        QTRY_COMPARE(viewer.grab().toImage().pixelColor(viewer.rect().center()), QColor(Qt::red));
+        auto *graphicsView = viewer.findChild<QGraphicsView *>();
+        QVERIFY(graphicsView);
+        auto *viewport = graphicsView->viewport();
+        const QPoint position = background ? QPoint(10, 10) : viewport->rect().center();
+        QSignalSpy returned(&viewer, &DolphinImageViewer::returnToFileRequested);
+        QTest::mouseClick(viewport, Qt::LeftButton, Qt::NoModifier, position);
+        QVERIFY(viewer.isVisible());
+        QCOMPARE(returned.count(), 0);
+        QTest::mouseDClick(viewport, Qt::LeftButton, Qt::NoModifier, position);
+        QTRY_VERIFY(!viewer.isVisible());
+        QCOMPARE(returned.count(), 1);
+        QCOMPARE(returned.first().at(0).toUrl(), imageUrl);
+        QCOMPARE(returned.first().at(1).toUrl(), imageUrl.adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash));
     }
 
     void testFirstAndLastImage()

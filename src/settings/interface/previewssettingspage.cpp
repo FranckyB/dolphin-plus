@@ -300,7 +300,7 @@ FolderCoversSettingsPage::FolderCoversSettingsPage(QWidget *parent)
     m_subfolderDepth = addNumber(i18nc("@label:spinbox", "Subfolder search depth:"), QStringLiteral("folder_cover_depth"), 0, 4);
     m_subfolderDepth->setSpecialValueText(i18nc("@item:inlistbox", "This folder only"));
     m_videoFallback = new QCheckBox(i18nc("@option:check", "Use a video frame when no image is readable"), m_coverOptions);
-    m_respectCustomIcons = new QCheckBox(i18nc("@option:check", "Keep existing custom folder icons"), m_coverOptions);
+    m_respectCustomIcons = new QCheckBox(i18nc("@option:check", "Keep existing theme-based folder icons"), m_coverOptions);
     m_respectCustomIcons->setObjectName(QStringLiteral("folder_cover_respect_icons"));
     form->addRow(m_videoFallback);
     form->addRow(m_respectCustomIcons);

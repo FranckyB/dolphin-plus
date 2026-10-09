@@ -133,17 +133,34 @@ QImage videoFrame(const QString &path, const FolderCover::Cancellation &cancel)
 }
 }
 
+bool FolderCover::usesCustomIcon(const QUrl &directory, const Settings &settings)
+{
+    if (!directory.isLocalFile()) {
+        return false;
+    }
+    const QDir root(directory.toLocalFile());
+    const QString metadataPath = root.filePath(QStringLiteral(".directory"));
+    if (!QFileInfo::exists(metadataPath)) {
+        return false;
+    }
+    KConfig metadata(metadataPath, KConfig::SimpleConfig);
+    const QString icon = metadata.group(QStringLiteral("Desktop Entry")).readPathEntry("Icon", QString());
+    if (icon.isEmpty()) {
+        return false;
+    }
+    const QUrl iconUrl(icon);
+    const QString iconPath = iconUrl.isLocalFile() ? iconUrl.toLocalFile() : root.filePath(icon);
+    return settings.respectCustomIcons || QFileInfo(iconPath).isFile();
+}
+
 QImage FolderCover::generate(const QUrl &directory, const Settings &settings, const QSize &size, const Cancellation &cancel)
 {
     if (!directory.isLocalFile() || cancel->load() || size.isEmpty() || size.width() > 2048 || size.height() > 2048) {
         return {};
     }
     const QString root = directory.toLocalFile();
-    if (settings.respectCustomIcons && QFileInfo::exists(root + QStringLiteral("/.directory"))) {
-        KConfig metadata(root + QStringLiteral("/.directory"), KConfig::SimpleConfig);
-        if (!metadata.group(QStringLiteral("Desktop Entry")).readEntry("Icon", QString()).isEmpty()) {
-            return {};
-        }
+    if (usesCustomIcon(directory, settings)) {
+        return {};
     }
     const QImage folder = readImage(settings.templatePath);
     if (folder.isNull()) {
