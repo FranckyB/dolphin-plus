@@ -40,6 +40,7 @@ private Q_SLOTS:
     void testSpecialFolderPropsPreservedWithGlobalViewProps();
     void testDownloadsKeepsTheOrdinaryStyleWhenChosen();
     void testRestoreViewProps();
+    void testDolphinMetadataIsolation();
 
 private:
     bool m_globalViewProps;
@@ -82,12 +83,12 @@ void ViewPropertiesTest::cleanup()
 
 /**
  * Test whether only reading properties won't result in creating
- * a .directory file when destructing the ViewProperties instance
+ * a .dolphinplus file when destructing the ViewProperties instance
  * and autosaving is enabled.
  */
 void ViewPropertiesTest::testReadOnlyBehavior()
 {
-    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.directory";
+    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFile));
 
     QScopedPointer<ViewProperties> props(new ViewProperties(m_testDir->url()));
@@ -99,11 +100,45 @@ void ViewPropertiesTest::testReadOnlyBehavior()
     QVERIFY(!QFile::exists(dotDirectoryFile));
 }
 
+void ViewPropertiesTest::testDolphinMetadataIsolation()
+{
+    const QString directory = m_testDir->url().toLocalFile();
+    const QByteArray stockSettings("[Dolphin]\nVersion=4\nSortRole=size\n[Desktop Entry]\nIcon=folder-blue\n");
+    QFile stockFile(directory + QStringLiteral("/.directory"));
+    QVERIFY(stockFile.open(QIODevice::WriteOnly));
+    QCOMPARE(stockFile.write(stockSettings), stockSettings.size());
+    stockFile.close();
+
+    KFileMetaData::UserMetaData metadata(directory);
+    const QString stockKey = QStringLiteral("kde.fm.viewproperties#1");
+    if (metadata.isSupported()) {
+        QCOMPARE(metadata.setAttribute(stockKey, QString::fromUtf8(stockSettings)), KFileMetaData::UserMetaData::NoError);
+    }
+
+    {
+        ViewProperties properties(m_testDir->url());
+        properties.setSortRole(QByteArrayLiteral("dolphinplus-isolation"));
+        properties.save();
+    }
+    {
+        ViewProperties properties(m_testDir->url());
+        QCOMPARE(properties.sortRole(), QByteArrayLiteral("dolphinplus-isolation"));
+        properties.restoreToDefaults();
+        properties.save();
+    }
+
+    QVERIFY(stockFile.open(QIODevice::ReadOnly));
+    QCOMPARE(stockFile.readAll(), stockSettings);
+    if (metadata.isSupported()) {
+        QCOMPARE(metadata.attribute(stockKey), QString::fromUtf8(stockSettings));
+    }
+}
+
 void ViewPropertiesTest::testReadOnlyDirectory()
 {
     const QUrl testDirUrl = m_testDir->url();
     const QString localFolder = testDirUrl.toLocalFile();
-    const QString dotDirectoryFile = localFolder + "/.directory";
+    const QString dotDirectoryFile = localFolder + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFile));
 
     // restrict write permissions
@@ -124,7 +159,7 @@ void ViewPropertiesTest::testReadOnlyDirectory()
 
     QVERIFY(!QFile::exists(dotDirectoryFile));
     KFileMetaData::UserMetaData metadata(localFolder);
-    const QString viewProperties = metadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+    const QString viewProperties = metadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
     QVERIFY(viewProperties.isEmpty());
 
     props.reset(new ViewProperties(testDirUrl));
@@ -134,9 +169,9 @@ void ViewPropertiesTest::testReadOnlyDirectory()
 
     metadata = KFileMetaData::UserMetaData(destinationDir);
     if (metadata.isSupported()) {
-        QVERIFY(metadata.hasAttribute("kde.fm.viewproperties#1"));
+        QVERIFY(metadata.hasAttribute("dolphinplus.viewproperties#1"));
     } else {
-        QVERIFY(QFile::exists(destinationDir + "/.directory"));
+        QVERIFY(QFile::exists(destinationDir + "/.dolphinplus"));
     }
 
     // un-restrict write permissions
@@ -145,7 +180,7 @@ void ViewPropertiesTest::testReadOnlyDirectory()
 
 void ViewPropertiesTest::testAutoSave()
 {
-    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.directory";
+    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFile));
 
     QScopedPointer<ViewProperties> props(new ViewProperties(m_testDir->url()));
@@ -155,7 +190,7 @@ void ViewPropertiesTest::testAutoSave()
 
     KFileMetaData::UserMetaData metadata(m_testDir->url().toLocalFile());
     if (metadata.isSupported()) {
-        auto viewProperties = metadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+        auto viewProperties = metadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
         QVERIFY(!viewProperties.isEmpty());
         QVERIFY(!QFile::exists(dotDirectoryFile));
     } else {
@@ -165,7 +200,7 @@ void ViewPropertiesTest::testAutoSave()
 
 void ViewPropertiesTest::testParamMigrationToFileAttr()
 {
-    QString dotDirectoryFilePath = m_testDir->url().toLocalFile() + "/.directory";
+    QString dotDirectoryFilePath = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFilePath));
 
     const char *settingsContent = R"SETTINGS("
@@ -191,7 +226,7 @@ HiddenFilesShown=true)SETTINGS";
         props->save();
 
         if (metadata.isSupported()) {
-            auto viewProperties = metadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+            auto viewProperties = metadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
             QVERIFY(!viewProperties.isEmpty());
             QVERIFY(!QFile::exists(dotDirectoryFilePath));
         } else {
@@ -206,7 +241,7 @@ HiddenFilesShown=true)SETTINGS";
 
 void ViewPropertiesTest::testParamMigrationToFileAttrKeepDirectory()
 {
-    QString dotDirectoryFilePath = m_testDir->url().toLocalFile() + "/.directory";
+    QString dotDirectoryFilePath = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFilePath));
 
     const char *settingsContent = R"SETTINGS("
@@ -236,7 +271,7 @@ ThoseShouldBeKept=true
         props->save();
 
         if (metadata.isSupported()) {
-            auto viewProperties = metadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+            auto viewProperties = metadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
             QVERIFY(!viewProperties.isEmpty());
         }
 
@@ -257,8 +292,8 @@ void ViewPropertiesTest::testGlobalDefaultConfigFromDirectory()
     QUrl globalPropertiesPath =
         QUrl::fromLocalFile(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation).append("/view_properties/").append(QStringLiteral("global")));
     QVERIFY(QDir().mkpath(globalPropertiesPath.toLocalFile()));
-    
-    QString dotDirectoryFilePath = globalPropertiesPath.toLocalFile() + "/.directory";
+
+    QString dotDirectoryFilePath = globalPropertiesPath.toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFilePath));
 
     auto cleanupGlobalDir = qScopeGuard([globalPropertiesPath, dotDirectoryFilePath] {
@@ -288,13 +323,13 @@ ThoseShouldBeKept=true
     ViewProperties props(m_testDir->url());
     props.save();
 
-    // We delete a temporary file in 'ViewProperties::save()' after reading the default config, 
-    // and that temp file is created as copy from '.directory' if we have metadata enabled.
+    // We delete a temporary file in 'ViewProperties::save()' after reading the default config,
+    // and that temp file is created as copy from '.dolphinplus' if we have metadata enabled.
     //
-    // But it can be original '.directory' instead of temp file, 
+    // But it can be original '.dolphinplus' instead of temp file,
     // if we read default config from 'global' directory, which does not support attributes.
-    // So we make sure that it is not deleted here, 
-    // because we do not want to delete '.directory' file.
+    // So we make sure that it is not deleted here,
+    // because we do not want to delete '.dolphinplus' file.
     QVERIFY(QFile::exists(dotDirectoryFilePath));
 
     QVERIFY(props.hiddenFilesShown());
@@ -306,7 +341,7 @@ void ViewPropertiesTest::testExtendedAttributeFull()
 #ifndef Q_OS_UNIX
     QSKIP("Only unix is supported, for this test");
 #endif
-    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.directory";
+    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFile));
 
     KFileMetaData::UserMetaData metadata(m_testDir->url().toLocalFile());
@@ -336,7 +371,7 @@ void ViewPropertiesTest::testExtendedAttributeFull()
     props.reset();
 
     if (metadata.isSupported()) {
-        auto viewProperties = metadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+        auto viewProperties = metadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
         QVERIFY(viewProperties.isEmpty());
         QVERIFY(QFile::exists(dotDirectoryFile));
 
@@ -354,10 +389,10 @@ void ViewPropertiesTest::testExtendedAttributeFullKeepDirectory()
 #ifndef Q_OS_UNIX
     QSKIP("Only unix is supported, for this test");
 #endif
-    const QString dotDirectoryFilePath = m_testDir->url().toLocalFile() + "/.directory";
+    const QString dotDirectoryFilePath = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFilePath));
 
-    // Pre-populate .directory with a Dolphin group and a non-Dolphin group (e.g. folder icon).
+    // Pre-populate .dolphinplus with a Dolphin group and a non-Dolphin group (e.g. folder icon).
     const char *initialContent =
         "[Desktop Entry]\n"
         "Icon=folder-pictures\n"
@@ -392,8 +427,8 @@ void ViewPropertiesTest::testExtendedAttributeFullKeepDirectory()
     props.reset();
 
     // xattr write should have failed with NoSpace — attribute must be empty
-    QVERIFY(metadata.attribute(QStringLiteral("kde.fm.viewproperties#1")).isEmpty());
-    // .directory must still exist
+    QVERIFY(metadata.attribute(QStringLiteral("dolphinplus.viewproperties#1")).isEmpty());
+    // .dolphinplus must still exist
     QVERIFY(QFile::exists(dotDirectoryFilePath));
 
     KConfig viewSettings(dotDirectoryFilePath, KConfig::SimpleConfig);
@@ -414,7 +449,7 @@ void ViewPropertiesTest::testExtendedAttributeFullWriteFailure()
     }
 
     const QString testDirPath = m_testDir->url().toLocalFile();
-    const QString dotDirectoryFilePath = testDirPath + "/.directory";
+    const QString dotDirectoryFilePath = testDirPath + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFilePath));
 
     KFileMetaData::UserMetaData metadata(testDirPath);
@@ -433,19 +468,19 @@ void ViewPropertiesTest::testExtendedAttributeFullWriteFailure()
     result = metadata.setAttribute("data", QString(blockSize - 60, 'a'));
     QCOMPARE(result, KFileMetaData::UserMetaData::NoError);
 
-    // Make the test directory read-only so writing .directory fails
+    // Make the test directory read-only so writing .dolphinplus fails
     QVERIFY(QFile::setPermissions(testDirPath, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
     auto restorePermissions = qScopeGuard([&testDirPath] {
         QFile::setPermissions(testDirPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
     });
 
-    // This must not crash even though both xattr and .directory are unwritable
+    // This must not crash even though both xattr and .dolphinplus are unwritable
     QScopedPointer<ViewProperties> props(new ViewProperties(m_testDir->url()));
     props->setSortRole("someNewSortRole");
     props.reset();
 
-    // Neither xattr nor .directory should have been written
-    QVERIFY(metadata.attribute(QStringLiteral("kde.fm.viewproperties#1")).isEmpty());
+    // Neither xattr nor .dolphinplus should have been written
+    QVERIFY(metadata.attribute(QStringLiteral("dolphinplus.viewproperties#1")).isEmpty());
     QVERIFY(!QFile::exists(dotDirectoryFilePath));
 #endif
 }
@@ -461,8 +496,8 @@ void ViewPropertiesTest::testUseAsDefaultViewSettings()
     });
     ViewProperties globalProps(globalPropertiesPath);
 
-    // Check that there's no .directory file and metadata is supported
-    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.directory";
+    // Check that there's no .dolphinplus file and metadata is supported
+    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFile));
     KFileMetaData::UserMetaData testDirMetadata(m_testDir->url().toLocalFile());
     KFileMetaData::UserMetaData globalDirMetadata(globalPropertiesPath.toLocalFile());
@@ -489,11 +524,11 @@ void ViewPropertiesTest::testUseAsDefaultViewSettings()
     auto testData = testDirProperties.data();
 
     // Make sure globalDirProperties are not empty, so they will be used
-    auto globalDirPropString = globalDirMetadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+    auto globalDirPropString = globalDirMetadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
     QVERIFY(!globalDirPropString.isEmpty());
 
     // Make sure testDirProperties is empty, so default values are used for it
-    auto testDirPropString = testDirMetadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+    auto testDirPropString = testDirMetadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
     QVERIFY(testDirPropString.isEmpty());
 
     // Compare that default and new folder viewMode is the new default
@@ -512,8 +547,8 @@ void ViewPropertiesTest::testUseAsCustomDefaultViewSettings()
     });
     ViewProperties globalProps(globalPropertiesPath);
 
-    // Check that there's no .directory file and metadata is supported
-    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.directory";
+    // Check that there's no .dolphinplus file and metadata is supported
+    QString dotDirectoryFile = m_testDir->url().toLocalFile() + "/.dolphinplus";
     QVERIFY(!QFile::exists(dotDirectoryFile));
     KFileMetaData::UserMetaData testDirMetadata(m_testDir->url().toLocalFile());
     KFileMetaData::UserMetaData globalDirMetadata(globalPropertiesPath.toLocalFile());
@@ -530,7 +565,7 @@ void ViewPropertiesTest::testUseAsCustomDefaultViewSettings()
     GeneralSettings::setGlobalViewProps(false);
 
     // Make sure globalDirProperties are not empty, so they will be used
-    auto globalDirPropString = globalDirMetadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+    auto globalDirPropString = globalDirMetadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
     QVERIFY(!globalDirPropString.isEmpty());
 
     // Load default data
@@ -544,7 +579,7 @@ void ViewPropertiesTest::testUseAsCustomDefaultViewSettings()
     testDirProperties->save();
 
     // testDirProperties is not default
-    auto testDirPropString = testDirMetadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+    auto testDirPropString = testDirMetadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
     QVERIFY(!testDirPropString.isEmpty());
     QCOMPARE(testDirProperties.data()->viewMode(), DolphinView::Mode::IconsView);
 
@@ -553,7 +588,7 @@ void ViewPropertiesTest::testUseAsCustomDefaultViewSettings()
     testDirProperties->save();
 
     // no more metedata => the defaults settings are in effect for the folder
-    testDirPropString = testDirMetadata.attribute(QStringLiteral("kde.fm.viewproperties#1"));
+    testDirPropString = testDirMetadata.attribute(QStringLiteral("dolphinplus.viewproperties#1"));
     QVERIFY(testDirPropString.isEmpty());
     QCOMPARE(testDirProperties.data()->viewMode(), DolphinView::Mode::DetailsView);
 }
@@ -596,10 +631,10 @@ void ViewPropertiesTest::testDownloadsKeepsTheOrdinaryStyleWhenChosen()
 
     auto forgetStoredProperties = [downloadsPath]() {
         KFileMetaData::UserMetaData metadata(downloadsPath);
-        if (metadata.isSupported() && metadata.hasAttribute(QStringLiteral("kde.fm.viewproperties#1"))) {
-            metadata.setAttribute(QStringLiteral("kde.fm.viewproperties#1"), QString());
+        if (metadata.isSupported() && metadata.hasAttribute(QStringLiteral("dolphinplus.viewproperties#1"))) {
+            metadata.setAttribute(QStringLiteral("dolphinplus.viewproperties#1"), QString());
         }
-        QFile::remove(downloadsPath + QDir::separator() + QStringLiteral(".directory"));
+        QFile::remove(downloadsPath + QDir::separator() + QStringLiteral(".dolphinplus"));
     };
     // The folder belongs to whoever runs this, so it is left as it was found.
     forgetStoredProperties();

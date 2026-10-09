@@ -2,6 +2,19 @@
     "version": 2,
     "configurePresets": [
         {
+            "name": "dolphin-plus-dev",
+            "displayName": "Dolphin Plus development baseline",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-dolphin-plus",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/build-dolphin-plus/stage",
+                "KDE_INSTALL_USE_QT_SYS_PATHS": "OFF",
+                "BUILD_TESTING": "ON"
+            }
+        },
+        {
             "name": "dev",
             "displayName": "Build as debug",
             "generator": "Ninja",
@@ -78,6 +91,10 @@
         }
     ],
     "buildPresets": [
+        {
+            "name": "dolphin-plus-dev",
+            "configurePreset": "dolphin-plus-dev"
+        },
         {
             "name": "dev",
             "configurePreset": "dev"

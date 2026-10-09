@@ -56,6 +56,7 @@ constexpr QLatin1String customCommand{"CUSTOM_COMMAND"};
 
 namespace KIO
 {
+class ListJob;
 class OpenUrlJob;
 class CommandLauncherJob;
 }
@@ -451,6 +452,9 @@ private Q_SLOTS:
     /** Goes up one hierarchy of the current URL. */
     void goUp();
 
+    void navigateSibling(bool next);
+    void cancelSiblingNavigation();
+
     /** Changes the location to the home URL. */
     void goHome();
 
@@ -788,6 +792,7 @@ private:
     DisabledActionNotifier *m_disabledActionNotifier;
 
     KIO::OpenUrlJob *m_lastHandleUrlOpenJob;
+    QPointer<KIO::ListJob> m_siblingNavigationJob;
 
     TerminalPanel *m_terminalPanel;
     PlacesPanel *m_placesPanel;

@@ -1,4 +1,81 @@
-# Dolphin
+# Dolphin Plus
+
+Development checkout for an independently installed Dolphin-derived file manager.
+Based on Dolphin 26.08.2, with separate application settings, sessions, D-Bus
+routing, folder-view preferences, bookmarks, and private core libraries.
+See [Dolphin Plus development](DOLPHIN-PLUS.md) for build, launch, and verification
+instructions. Native sibling navigation and an integrated image viewer are
+implemented; grouping and scripting remain planned work.
+
+## Native Sibling Navigation
+
+Use **Go > Previous Sibling Folder** or **Go > Next Sibling Folder** to navigate
+the active pane without opening or closing tabs. Assign either command in
+**Settings > Configure Keyboard Shortcuts**, or add it through **Configure
+Toolbars**. No default shortcuts are reserved.
+
+Navigation uses case-insensitive, locale-aware natural name ordering, skips
+hidden folders and files, and stops at the first or last sibling. It currently
+supports local folders only. Lookups are asynchronous; repeated triggers are
+ignored while busy, and changing tabs, panes, or location cancels pending work.
+Back/Forward history is preserved. No service menu or full-path window title is
+needed.
+
+## Integrated Image Viewer
+
+Open a supported image normally to view it in a separate, uncluttered Dolphin
+Plus window. It uses Gwenview's embeddable image component, without Gwenview's
+folder browser, sidebars, or toolbars. The installed `gwenview` package supplies
+the component; supported image formats depend on its installed decoders.
+
+- Mouse wheel or Left/Right: previous/next image in the originating pane's
+	displayed order, respecting its filter and sorting at the time of opening.
+- Home/End: first/last image in the current folder's image list.
+- Past the last image: first image in the next sibling folder containing images.
+	Before the first: last image in the previous sibling folder containing images.
+- Previous/Next Sibling Folder: jump directly to the first image in that sibling
+	direction. Assign shortcuts in Image Viewer preferences; none are reserved by default.
+- Enter or Escape: close, return to the originating tab and pane, and select
+	and reveal the last viewed image, navigating to its folder if needed.
+- Ctrl+wheel: zoom. `0`: fit to window. `1`: actual size. Drag a zoomed image to pan.
+- F11: toggle fullscreen. Right-click for viewer controls and file actions.
+
+Use **Settings > Configure Dolphin Plus > Image Viewer**, or right-click the
+image and choose **Configure Image Viewer**, to set fullscreen startup, choose
+**Fit larger images only** or **Fit all images**, and edit viewer shortcuts.
+Settings and shortcuts are saved separately from standalone Gwenview. Apply
+updates open viewers; fullscreen startup applies the next time a viewer opens.
+Cancel leaves unapplied changes unsaved, and Restore Defaults resets this page.
+
+Actual Size and Fit are mutually exclusive modes; manual zoom can leave neither
+selected. Fit preserves aspect ratio and follows window resizing. The fit policy
+applies to local images with readable dimensions; other images retain native
+component behavior. Very small images remain subject to the component's maximum
+zoom. Menu shortcut labels match the configured viewer bindings.
+
+Sibling browsing supports local folders, preserves displayed symlink paths, and
+uses natural, case-insensitive folder order. Newly entered folders use natural
+filename order rather than the original pane's sorting/filter. Hidden folders
+and hidden images are skipped; scanning is non-recursive and stops at the
+parent's ends without wrapping. Unreadable folders report an error and stop the
+search. Remote/search/mixed-folder lists retain in-list navigation only.
+
+There is one viewer per pane. Each image list is a snapshot. Closing in another
+folder loads it in the original pane and clears its name filter so the image can
+be selected. Returning to the original folder does not reload it; a name filter
+hiding the returned image is cleared. Removed images are not selected. Manually
+changing the originating folder cancels its viewer; closing its tab also destroys
+it. Home/End, replacing the image list, and closing cancel a pending sibling search.
+The filename and position appear in the normal window title.
+
+**Open With** still uses external applications. Unsupported files, multi-file
+activation, or a missing viewer component retain Dolphin's external-opening
+behavior. This first version does not provide image editing, video playback,
+live selection tracking, or a thumbnail strip.
+
+The following sections describe upstream Dolphin, not fork support.
+
+## Upstream Dolphin
 
 Dolphin is KDE's file manager that lets you navigate and browse the contents of your hard drives, USB sticks, SD cards, and more. Creating, moving, or deleting files and folders is simple and fast. See more information [on Dolphin's homepage](https://apps.kde.org/dolphin/).
 

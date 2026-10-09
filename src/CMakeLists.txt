@@ -38,6 +38,8 @@ set_target_properties(dolphinvcs PROPERTIES
     VERSION ${DOLPHINVCS_VERSION}
     SOVERSION ${DOLPHINVCS_SOVERSION}
     EXPORT_NAME DolphinVcs
+    OUTPUT_NAME dolphinplusvcs
+    INSTALL_RPATH "$ORIGIN"
 )
 
 ecm_generate_headers(dolphinvcs_LIB_HEADERS
@@ -49,10 +51,7 @@ ecm_generate_headers(dolphinvcs_LIB_HEADERS
 )
 target_include_directories(dolphinvcs INTERFACE "$<INSTALL_INTERFACE:${KDE_INSTALL_INCLUDEDIR}>")
 
-install(TARGETS dolphinvcs EXPORT DolphinVcsTargets ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
-
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/dolphinvcs_export.h DESTINATION ${KDE_INSTALL_INCLUDEDIR} COMPONENT Devel)
-install(FILES ${dolphinvcs_LIB_HEADERS} DESTINATION "${KDE_INSTALL_INCLUDEDIR}/Dolphin" COMPONENT Devel)
+install(TARGETS dolphinvcs LIBRARY DESTINATION ${KDE_INSTALL_LIBDIR}/dolphinplus NAMELINK_SKIP)
 
 ########### next target ###############
 
@@ -252,15 +251,16 @@ endif()
 set_target_properties(dolphinprivate PROPERTIES
     VERSION ${DOLPHINPRIVATE_VERSION}
     SOVERSION ${DOLPHINPRIVATE_SOVERSION}
+    OUTPUT_NAME dolphinplusprivate
+    INSTALL_RPATH "$ORIGIN"
 )
 
-install(TARGETS dolphinprivate ${KDE_INSTALL_TARGETS_DEFAULT_ARGS} LIBRARY NAMELINK_SKIP)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/dolphin_export.h DESTINATION ${KDE_INSTALL_INCLUDEDIR} COMPONENT Devel)
+install(TARGETS dolphinprivate LIBRARY DESTINATION ${KDE_INSTALL_LIBDIR}/dolphinplus NAMELINK_SKIP)
 
 ##########################################
 configure_file(dolphinpart.json.in ${CMAKE_CURRENT_BINARY_DIR}/dolphinpart.json @ONLY)
 
-add_library(dolphinpart MODULE)
+add_library(dolphinpart MODULE EXCLUDE_FROM_ALL)
 
 target_sources(dolphinpart PRIVATE
     dolphinpart.cpp
@@ -277,14 +277,16 @@ target_link_libraries(dolphinpart
     dolphinprivate
 )
 
-install(TARGETS dolphinpart DESTINATION ${KDE_INSTALL_PLUGINDIR}/kf6/parts)
-install(FILES dolphinpartactions.desktop DESTINATION "${KDE_INSTALL_DATADIR}/dolphin/")
 
 ##########################################
 
 add_library(dolphinstatic STATIC)
 
 target_sources(dolphinstatic PRIVATE
+    dolphinimageviewer.cpp
+    dolphinimageviewer.h
+    settings/viewer/viewersettingspage.cpp
+    settings/viewer/viewersettingspage.h
     admin/bar.cpp
     admin/workerintegration.cpp
     animatedheightwidget.cpp
@@ -509,6 +511,10 @@ if (HAVE_KUSERFEEDBACK)
 endif()
 
 add_executable(dolphin)
+set_target_properties(dolphin PROPERTIES
+    OUTPUT_NAME dolphin-plus
+    INSTALL_RPATH "$ORIGIN/../${KDE_INSTALL_LIBDIR}/dolphinplus"
+)
 
 target_sources(dolphin PRIVATE
     dbusinterface.cpp
@@ -531,7 +537,7 @@ ecm_add_app_icon(dolphin
         icons/64-apps-org.kde.dolphin.png
 )
 
-install(FILES icons/org.kde.dolphin.svg DESTINATION ${KDE_INSTALL_ICONDIR}/hicolor/scalable/apps)
+install(FILES icons/org.kde.dolphin.svg DESTINATION ${KDE_INSTALL_ICONDIR}/hicolor/scalable/apps RENAME local.dolphinplus.svg)
 
 target_link_libraries(dolphin
     PRIVATE
@@ -544,23 +550,14 @@ if (HAVE_X11)
     target_link_libraries(dolphin PRIVATE Qt::GuiPrivate)
 endif()
 
-include(DbusInterfaceMacros)
-
-generate_and_install_dbus_interface(
-    dolphin
-    dbusinterface.h
-    org.freedesktop.FileManager1.xml
-    OPTIONS -a
-)
-
 install(TARGETS dolphin ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 
 ##########################################
 
 if(NOT WIN32)
     # The settings are still accessible from the hamburger menu
-    add_library(kcm_dolphinviewmodes MODULE)
-    add_library(kcm_dolphingeneral MODULE)
+    add_library(kcm_dolphinviewmodes MODULE EXCLUDE_FROM_ALL)
+    add_library(kcm_dolphingeneral MODULE EXCLUDE_FROM_ALL)
     target_compile_definitions(kcm_dolphingeneral PUBLIC IS_KCM)
 
     target_sources(kcm_dolphinviewmodes PRIVATE
@@ -608,74 +605,14 @@ if(NOT WIN32)
     target_link_libraries(kcm_dolphinviewmodes dolphinprivate)
     target_link_libraries(kcm_dolphingeneral dolphinprivate)
 
-    install( FILES org.kde.dolphin.appdata.xml DESTINATION ${KDE_INSTALL_METAINFODIR} )
-
-    install(TARGETS kcm_dolphinviewmodes DESTINATION ${KDE_INSTALL_PLUGINDIR}/dolphin/kcms )
-    install(TARGETS kcm_dolphingeneral DESTINATION ${KDE_INSTALL_PLUGINDIR}/dolphin/kcms )
 endif()
 
-if(NOT WIN32)
-    add_subdirectory(settings/contextmenu/servicemenuinstaller)
-    install( FILES settings/contextmenu/servicemenu.knsrc DESTINATION ${KDE_INSTALL_KNSRCDIR} )
-endif()
-
-########### install files ###############
-
-install( PROGRAMS org.kde.dolphin.desktop DESTINATION ${KDE_INSTALL_APPDIR} )
-
-install( DIRECTORY DESTINATION "${KDE_INSTALL_FULL_DATAROOTDIR}/kglobalaccel" )
-
-install(
-    CODE "execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink \"${KDE_INSTALL_FULL_APPDIR}/org.kde.dolphin.desktop\" \"\$ENV{DESTDIR}${KDE_INSTALL_FULL_DATAROOTDIR}/kglobalaccel/org.kde.dolphin.desktop\")"
-)
-
-install( FILES settings/dolphin_directoryviewpropertysettings.kcfg
-               settings/dolphin_generalsettings.kcfg
-               settings/dolphin_contextmenusettings.kcfg
-               settings/dolphin_compactmodesettings.kcfg
-               settings/dolphin_iconsmodesettings.kcfg
-               settings/dolphin_detailsmodesettings.kcfg
-               settings/dolphin_versioncontrolsettings.kcfg
-         DESTINATION ${KDE_INSTALL_KCFGDIR} )
-
-install( FILES settings/dolphin_detailsmodesettings.upd
-               settings/dolphin_statusandlocationbarssettings.upd
-               settings/dolphin_replace_view_mode_with_view_settings_in_toolbar.upd
-               settings/dolphin_replace_view_mode_with_view_settings_in_toolbar.py
-               settings/dolphin_tab_key_shortcut_for_focus_other_view.upd
-               settings/dolphin_tab_key_shortcut_for_focus_other_view.py
-         DESTINATION ${KDE_INSTALL_KCONFUPDATEDIR} )
-
-# install KF6 kconfig updater C++ scripts to kconf_update_bin
-add_executable(dolphin_25.04_update_statusandlocationbarssettings "settings/dolphin_25.04_update_statusandlocationbarssettings.cpp")
-target_link_libraries(dolphin_25.04_update_statusandlocationbarssettings
-    KF6::ConfigCore
-    KF6::XmlGui
-)
-
-install(
-    TARGETS
-        dolphin_25.04_update_statusandlocationbarssettings
-    DESTINATION ${KDE_INSTALL_LIBDIR}/kconf_update_bin
-)
-
-add_executable(
-    dolphin_update_splitviewsettings
-    "settings/dolphin_update_splitviewsettings.cpp"
-)
-target_link_libraries(dolphin_update_splitviewsettings
-    KF6::ConfigCore
-    KF6::XmlGui
-)
-install(
-    TARGETS
-        dolphin_update_splitviewsettings
-    DESTINATION ${KDE_INSTALL_LIBDIR}/kconf_update_bin
-)
+configure_file(local.dolphinplus.desktop.in local.dolphinplus.desktop @ONLY)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/local.dolphinplus.desktop DESTINATION ${KDE_INSTALL_APPDIR})
 
 if(BUILD_TESTING)
     target_compile_definitions(dolphin PRIVATE BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
-add_subdirectory(itemactions)
+add_subdirectory(itemactions EXCLUDE_FROM_ALL)

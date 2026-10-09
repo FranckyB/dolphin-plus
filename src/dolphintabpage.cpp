@@ -565,6 +565,7 @@ void DolphinTabPage::disconnectViewActivatedSignals()
 DolphinViewContainer *DolphinTabPage::createViewContainer(const QUrl &url) const
 {
     DolphinViewContainer *container = new DolphinViewContainer(url, m_splitter);
+    connect(container, &DolphinViewContainer::imageViewerReturnRequested, this, &DolphinTabPage::activationRequested);
     container->setActive(false);
 
     const DolphinView *view = container->view();

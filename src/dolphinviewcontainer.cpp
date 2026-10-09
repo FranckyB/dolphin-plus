@@ -14,6 +14,7 @@
 #include "dolphin_generalsettings.h"
 #include "dolphin_iconsmodesettings.h"
 #include "dolphindebug.h"
+#include "dolphinimageviewer.h"
 #include "dolphinplacesmodelsingleton.h"
 #include "filterbar/filterbar.h"
 #include "global.h"
@@ -40,6 +41,7 @@
 #include <QApplication>
 #include <QDesktopServices>
 #include <QDropEvent>
+#include <QFileInfo>
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QRegularExpression>
@@ -128,6 +130,13 @@ DolphinViewContainer::DolphinViewContainer(const QUrl &url, QWidget *parent)
     connect(m_view, &DolphinView::writeStateChanged, this, &DolphinViewContainer::writeStateChanged);
     connect(m_view, &DolphinView::requestItemInfo, this, &DolphinViewContainer::showItemInfo);
     connect(m_view, &DolphinView::itemActivated, this, &DolphinViewContainer::slotItemActivated);
+    connect(m_view, &DolphinView::urlChanged, this, [this]() {
+        if (m_imageViewer) {
+            m_imageViewer->disconnect(this);
+            m_imageViewer->close();
+            m_imageViewer = nullptr;
+        }
+    });
     connect(m_view, &DolphinView::fileMiddleClickActivated, this, &DolphinViewContainer::slotfileMiddleClickActivated);
     connect(m_view, &DolphinView::itemsActivated, this, &DolphinViewContainer::slotItemsActivated);
     connect(m_view, &DolphinView::redirection, this, &DolphinViewContainer::redirect);
@@ -771,6 +780,59 @@ void DolphinViewContainer::slotItemActivated(const KFileItem &item)
             setUrl(url);
         }
         return;
+    }
+
+    if (item.isFile() && DolphinImageViewer::supportsMimeType(item.mimetype())) {
+        QList<QUrl> images;
+        const KFileItemList items = m_view->items();
+        for (const KFileItem &candidate : items) {
+            if (candidate.isFile() && DolphinImageViewer::supportsMimeType(candidate.mimetype())) {
+                images.append(candidate.url());
+            }
+        }
+        if (images.contains(item.url())) {
+            if (!m_imageViewer) {
+                m_imageViewer = new DolphinImageViewer(this);
+                const QUrl originUrl = m_view->url();
+                connect(m_imageViewer, &DolphinImageViewer::returnToFileRequested, this, [this, originUrl](const QUrl &imageUrl, const QUrl &directory) {
+                    m_imageViewer = nullptr;
+                    if (m_view->url() != originUrl) {
+                        return;
+                    }
+                    if (imageUrl.isLocalFile() && !QFileInfo::exists(imageUrl.toLocalFile())) {
+                        showMessage(i18nc("@info:status", "The viewed image is no longer available."), KMessageWidget::Information);
+                    } else if (directory.isLocalFile() && directory != originUrl.adjusted(QUrl::StripTrailingSlash)) {
+                        setUrl(directory);
+                        m_filterBar->clear();
+                        setNameFilter({});
+                        m_view->markUrlsAsSelected({imageUrl});
+                        m_view->markUrlAsCurrent(imageUrl);
+                    } else {
+                        bool selected = m_view->selectAndRevealUrl(imageUrl);
+                        if (!selected && directory.isLocalFile() && imageUrl.adjusted(QUrl::RemoveFilename | QUrl::StripTrailingSlash) == directory
+                            && !m_view->nameFilter().isEmpty()) {
+                            m_filterBar->clear();
+                            setNameFilter({});
+                            selected = m_view->selectAndRevealUrl(imageUrl);
+                        }
+                        if (!selected) {
+                            showMessage(i18nc("@info:status", "The viewed image is no longer visible in this folder."), KMessageWidget::Information);
+                        }
+                    }
+                    Q_EMIT imageViewerReturnRequested();
+                    setActive(true);
+                    window()->raise();
+                    window()->activateWindow();
+                    requestFocus();
+                });
+            }
+            if (m_imageViewer->setImages(images, item.url(), m_view->url())) {
+                m_imageViewer->showViewer();
+                return;
+            }
+            showMessage(i18nc("@info:status", "The integrated image viewer could not be opened: %1", m_imageViewer->errorString()), KMessageWidget::Warning);
+            delete m_imageViewer;
+        }
     }
 
     KIO::OpenUrlJob *job = new KIO::OpenUrlJob(item.targetUrl(), item.mimetype());

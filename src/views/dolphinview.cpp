@@ -487,6 +487,16 @@ void DolphinView::markUrlAsCurrent(const QUrl &url)
     m_scrollToCurrentItem = true;
 }
 
+bool DolphinView::selectAndRevealUrl(const QUrl &url)
+{
+    if (m_model->index(url) < 0) {
+        return false;
+    }
+    forceUrlsSelection(url, {url});
+    updateViewState();
+    return true;
+}
+
 void DolphinView::selectItems(const QRegularExpression &regexp, bool enabled)
 {
     const KItemListSelectionManager::SelectionMode mode = enabled ? KItemListSelectionManager::Select : KItemListSelectionManager::Deselect;

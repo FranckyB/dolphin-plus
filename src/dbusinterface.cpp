@@ -20,10 +20,6 @@ DBusInterface::DBusInterface()
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/freedesktop/FileManager1"),
                                                  this,
                                                  QDBusConnection::ExportScriptableContents | QDBusConnection::ExportAdaptors);
-    QDBusConnectionInterface *sessionInterface = QDBusConnection::sessionBus().interface();
-    if (sessionInterface) {
-        sessionInterface->registerService(QStringLiteral("org.freedesktop.FileManager1"), QDBusConnectionInterface::QueueService);
-    }
 }
 
 void DBusInterface::ShowFolders(const QStringList &uriList, const QString &startUpId)
@@ -32,7 +28,7 @@ void DBusInterface::ShowFolders(const QStringList &uriList, const QString &start
     if (urls.isEmpty()) {
         return;
     }
-    const auto serviceName = isDaemon() ? QString() : QStringLiteral("org.kde.dolphin-%1").arg(QCoreApplication::applicationPid());
+    const auto serviceName = isDaemon() ? QString() : QStringLiteral("local.dolphinplus-%1").arg(QCoreApplication::applicationPid());
     if (!Dolphin::attachToExistingInstance(urls, false, GeneralSettings::splitView(), serviceName, startUpId)) {
         Dolphin::openNewWindow(urls);
     }
@@ -44,7 +40,7 @@ void DBusInterface::ShowItems(const QStringList &uriList, const QString &startUp
     if (urls.isEmpty()) {
         return;
     }
-    const auto serviceName = isDaemon() ? QString() : QStringLiteral("org.kde.dolphin-%1").arg(QCoreApplication::applicationPid());
+    const auto serviceName = isDaemon() ? QString() : QStringLiteral("local.dolphinplus-%1").arg(QCoreApplication::applicationPid());
     if (!Dolphin::attachToExistingInstance(urls, true, GeneralSettings::splitView(), serviceName, startUpId)) {
         Dolphin::openNewWindow(urls, nullptr, Dolphin::OpenNewWindowFlag::Select);
     };

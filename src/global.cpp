@@ -15,6 +15,7 @@
 #include <KDialogJobUiDelegate>
 #include <KIO/ApplicationLauncherJob>
 #include <KService>
+#include <KShell>
 #include <KWindowSystem>
 
 #include <QApplication>
@@ -41,7 +42,7 @@ QUrl Dolphin::homeUrl()
 
 void Dolphin::openNewWindow(const QList<QUrl> &urls, QWidget *window, const OpenNewWindowFlags &flags)
 {
-    QString command = QStringLiteral("dolphin --new-window");
+    QString command = KShell::quoteArg(QCoreApplication::applicationFilePath()) + QStringLiteral(" --new-window");
 
     if (flags.testFlag(OpenNewWindowFlag::Select)) {
         command.append(QLatin1String(" --select"));
@@ -143,7 +144,7 @@ QVector<QPair<QSharedPointer<OrgKdeDolphinMainWindowInterface>, QStringList>> Do
     QVector<QPair<QSharedPointer<OrgKdeDolphinMainWindowInterface>, QStringList>> dolphinInterfaces;
     if (!preferredService.isEmpty()) {
         QSharedPointer<OrgKdeDolphinMainWindowInterface> preferredInterface(
-            new OrgKdeDolphinMainWindowInterface(preferredService, QStringLiteral("/dolphin/Dolphin_1"), QDBusConnection::sessionBus()));
+            new OrgKdeDolphinMainWindowInterface(preferredService, QStringLiteral("/dolphinplus/Dolphin_1"), QDBusConnection::sessionBus()));
         if (preferredInterface->isValid() && !preferredInterface->lastError().isValid()) {
             dolphinInterfaces.append(qMakePair(preferredInterface, QStringList()));
         }
@@ -153,14 +154,14 @@ QVector<QPair<QSharedPointer<OrgKdeDolphinMainWindowInterface>, QStringList>> Do
     QDBusConnectionInterface *sessionInterface = QDBusConnection::sessionBus().interface();
     const QStringList dbusServices = sessionInterface ? sessionInterface->registeredServiceNames().value() : QStringList();
     // Don't match the service without trailing "-" (unique instance)
-    const QString pattern = QStringLiteral("org.kde.dolphin-");
+    const QString pattern = QStringLiteral("local.dolphinplus-");
     // Don't match the pid without leading "-"
     const QString myPid = QLatin1Char('-') + QString::number(QCoreApplication::applicationPid());
     for (const QString &service : dbusServices) {
         if (service.startsWith(pattern) && !service.endsWith(myPid)) {
             // Check if instance can handle our URLs
             QSharedPointer<OrgKdeDolphinMainWindowInterface> interface(
-                new OrgKdeDolphinMainWindowInterface(service, QStringLiteral("/dolphin/Dolphin_1"), QDBusConnection::sessionBus()));
+                new OrgKdeDolphinMainWindowInterface(service, QStringLiteral("/dolphinplus/Dolphin_1"), QDBusConnection::sessionBus()));
             if (interface->isValid() && !interface->lastError().isValid()) {
                 auto isActiveWindowReply = interface->isActiveWindow();
                 isActiveWindowReply.waitForFinished();

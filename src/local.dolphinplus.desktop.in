@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dolphin Plus
+GenericName=File Manager
+Comment=Independent Dolphin-based file manager
+Exec="@CMAKE_INSTALL_PREFIX@/@KDE_INSTALL_BINDIR@/dolphin-plus" %U
+Icon=local.dolphinplus
+Terminal=false
+Categories=Qt;KDE;System;FileTools;FileManager;
+StartupNotify=true
+StartupWMClass=dolphinplus

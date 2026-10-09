@@ -52,6 +52,7 @@
 #include <KFileItemListProperties>
 #include <KIO/CommandLauncherJob>
 #include <KIO/JobUiDelegateFactory>
+#include <KIO/ListJob>
 #include <KIO/OpenFileManagerWindowJob>
 #include <KIO/OpenUrlJob>
 #include <KJobWidgets>
@@ -79,8 +80,10 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QCloseEvent>
+#include <QCollator>
 #include <QDesktopServices>
 #include <QDialog>
+#include <QDir>
 #include <QDomDocument>
 #include <QFileInfo>
 #include <QLineEdit>
@@ -143,7 +146,7 @@ DolphinMainWindow::DolphinMainWindow()
 #ifndef Q_OS_WIN
     setWindowFlags(Qt::WindowContextHelpButtonHint);
 #endif
-    setComponentName(QStringLiteral("dolphin"), QGuiApplication::applicationDisplayName());
+    setComponentName(QStringLiteral("dolphinplus"), QGuiApplication::applicationDisplayName());
     setObjectName(QStringLiteral("Dolphin#"));
 
     setStateConfigGroup("State");
@@ -210,7 +213,7 @@ DolphinMainWindow::DolphinMainWindow()
     setupFileItemActions();
 
     const bool usePhoneUi{KRuntimePlatform::runtimePlatform().contains(QLatin1String("phone"))};
-    setupGUI(Save | Create | ToolBar, usePhoneUi ? QStringLiteral("dolphinuiforphones.rc") : QString() /* load the default dolphinui.rc file */);
+    setupGUI(Save | Create | ToolBar, usePhoneUi ? QStringLiteral("dolphinuiforphones.rc") : QStringLiteral("dolphinui.rc"));
     stateChanged(QStringLiteral("new_file"));
 
     QClipboard *clipboard = QApplication::clipboard();
@@ -427,6 +430,7 @@ void DolphinMainWindow::slotSelectionChanged(const KFileItemList &selection)
 
 void DolphinMainWindow::updateHistory()
 {
+    cancelSiblingNavigation();
     const KUrlNavigator *urlNavigator = m_activeViewContainer->urlNavigatorInternalWithHistory();
     const int index = urlNavigator->historyIndex();
 
@@ -754,7 +758,7 @@ void DolphinMainWindow::slotSaveSession()
         m_sessionSaveScheduled = true;
     } else if (!m_sessionSaveTimer->isActive()) {
         // No point in saving the session if the timer is running (since it will save the session again when it times out).
-        KConfigGui::setSessionConfig(QStringLiteral("dolphin"), QStringLiteral("dolphin"));
+        KConfigGui::setSessionConfig(QStringLiteral("dolphinplus"), QStringLiteral("dolphinplus"));
         KConfig *config = KConfigGui::sessionConfig();
         saveGlobalProperties(config);
         savePropertiesInternal(config, 1);
@@ -1268,6 +1272,75 @@ void DolphinMainWindow::goUp()
     m_activeViewContainer->urlNavigatorInternalWithHistory()->goUp();
 }
 
+void DolphinMainWindow::cancelSiblingNavigation()
+{
+    if (m_siblingNavigationJob) {
+        m_siblingNavigationJob->kill();
+        m_siblingNavigationJob = nullptr;
+    }
+}
+
+void DolphinMainWindow::navigateSibling(bool next)
+{
+    if (!m_activeViewContainer || m_siblingNavigationJob) {
+        return;
+    }
+
+    const QUrl currentUrl = m_activeViewContainer->url().adjusted(QUrl::StripTrailingSlash);
+    const QUrl parentUrl = KIO::upUrl(currentUrl);
+    if (!currentUrl.isLocalFile() || currentUrl.fileName().isEmpty() || currentUrl.fileName().startsWith(QLatin1Char('.')) || parentUrl == currentUrl) {
+        return;
+    }
+
+    const QPointer<DolphinViewContainer> container = m_activeViewContainer;
+    const auto folders = std::make_shared<QStringList>();
+    auto *job = KIO::listDir(parentUrl, KIO::HideProgressInfo);
+    job->setParent(this);
+    job->setUiDelegate(nullptr);
+    m_siblingNavigationJob = job;
+    updateGoActions();
+
+    connect(job, &KIO::ListJob::entries, this, [folders](KIO::Job *, const KIO::UDSEntryList &entries) {
+        for (const KIO::UDSEntry &entry : entries) {
+            const QString name = entry.stringValue(KIO::UDSEntry::UDS_NAME);
+            if (entry.isDir() && !name.isEmpty() && !name.startsWith(QLatin1Char('.'))) {
+                folders->append(name);
+            }
+        }
+    });
+    connect(job, &KJob::result, this, [this, job, folders, container, currentUrl, parentUrl, next]() {
+        if (m_siblingNavigationJob != job) {
+            return;
+        }
+        m_siblingNavigationJob = nullptr;
+        updateGoActions();
+        if (!container || container != m_activeViewContainer || container->url().adjusted(QUrl::StripTrailingSlash) != currentUrl) {
+            return;
+        }
+        if (job->error()) {
+            container->showMessage(i18nc("@info", "Could not list sibling folders: %1", job->errorString()), KMessageWidget::Error);
+            return;
+        }
+
+        QCollator collator(QLocale::system().language() == QLocale::C ? QLocale(QLocale::English) : QLocale::system());
+        collator.setNumericMode(true);
+        collator.setCaseSensitivity(Qt::CaseInsensitive);
+        std::sort(folders->begin(), folders->end(), [&collator](const QString &left, const QString &right) {
+            const int order = collator.compare(left, right);
+            return order == 0 ? left < right : order < 0;
+        });
+        const auto currentIndex = folders->indexOf(currentUrl.fileName());
+        const auto targetIndex = currentIndex + (next ? 1 : -1);
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= folders->size()) {
+            container->showMessage(next ? i18nc("@info", "No next sibling folder.") : i18nc("@info", "No previous sibling folder."),
+                                   KMessageWidget::Information);
+            return;
+        }
+
+        container->setUrl(QUrl::fromLocalFile(QDir(parentUrl.toLocalFile()).filePath(folders->at(targetIndex))));
+    });
+}
+
 void DolphinMainWindow::goHome()
 {
     m_activeViewContainer->urlNavigatorInternalWithHistory()->goHome();
@@ -1651,6 +1724,7 @@ void DolphinMainWindow::closedTabsCountChanged(unsigned int count)
 
 void DolphinMainWindow::activeViewChanged(DolphinViewContainer *viewContainer)
 {
+    cancelSiblingNavigation();
     DolphinViewContainer *oldViewContainer = m_activeViewContainer;
     Q_ASSERT(viewContainer);
 
@@ -2158,6 +2232,22 @@ void DolphinMainWindow::setupActions()
     m_backAction->popupMenu()->installEventFilter(middleClickEventFilter);
     m_forwardAction->popupMenu()->installEventFilter(middleClickEventFilter);
     KStandardAction::up(this, &DolphinMainWindow::goUp, actionCollection());
+    QAction *previousSibling = actionCollection()->addAction(QStringLiteral("go_previous_sibling"));
+    previousSibling->setText(i18nc("@action:inmenu Go", "Previous Sibling Folder"));
+    previousSibling->setIcon(QIcon::fromTheme(QStringLiteral("go-previous")));
+    previousSibling->setToolTip(i18nc("@info:tooltip", "Open the previous sibling folder in this pane"));
+    connect(previousSibling, &QAction::triggered, this, [this]() {
+        navigateSibling(false);
+    });
+
+    QAction *nextSibling = actionCollection()->addAction(QStringLiteral("go_next_sibling"));
+    nextSibling->setText(i18nc("@action:inmenu Go", "Next Sibling Folder"));
+    nextSibling->setIcon(QIcon::fromTheme(QStringLiteral("go-next")));
+    nextSibling->setToolTip(i18nc("@info:tooltip", "Open the next sibling folder in this pane"));
+    connect(nextSibling, &QAction::triggered, this, [this]() {
+        navigateSibling(true);
+    });
+
     QAction *homeAction = KStandardAction::home(this, &DolphinMainWindow::goHome, actionCollection());
     homeAction->setWhatsThis(xi18nc("@info:whatsthis",
                                     "Go to your "
@@ -2759,6 +2849,11 @@ void DolphinMainWindow::updateGoActions()
                                     "a directory that contains all data connected to this computer"
                                     "—the <emphasis>root directory</emphasis>.</para>"));
     goUpAction->setEnabled(KIO::upUrl(currentUrl) != currentUrl);
+    const QUrl siblingUrl = currentUrl.adjusted(QUrl::StripTrailingSlash);
+    const bool canNavigateSiblings = !m_siblingNavigationJob && siblingUrl.isLocalFile() && !siblingUrl.fileName().isEmpty()
+        && !siblingUrl.fileName().startsWith(QLatin1Char('.')) && KIO::upUrl(siblingUrl) != siblingUrl;
+    actionCollection()->action(QStringLiteral("go_previous_sibling"))->setEnabled(canNavigateSiblings);
+    actionCollection()->action(QStringLiteral("go_next_sibling"))->setEnabled(canNavigateSiblings);
 }
 
 void DolphinMainWindow::refreshViews()

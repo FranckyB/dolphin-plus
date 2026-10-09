@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!DOCTYPE gui SYSTEM "kpartgui.dtd">
-<gui name="dolphin" version="49">
+<gui name="dolphinplus" version="50">
     <MenuBar>
         <Menu name="file">
             <Action name="new_menu" />
@@ -121,6 +121,8 @@
         <Action priority="0" name="go_back"/>
         <Action priority="0" name="go_forward"/>
         <Action priority="0" name="go_up"/>
+        <Action name="go_previous_sibling"/>
+        <Action name="go_next_sibling"/>
         <Action priority="0" name="go_home"/>
         <Action priority="0" name="stop"/>
         <Action priority="0" name="icons"/>

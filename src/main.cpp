@@ -60,7 +60,7 @@ int main(int argc, char **argv)
             xi18ndc(dolphinTranslationDomain,
                     "@info:shell %1 is a terminal command",
                     "Running <application>Dolphin</application> with <command>sudo</command> is discouraged. Please run <icode>%1</icode> instead.",
-                    QStringLiteral("dolphin --sudo")))
+                    QStringLiteral("dolphin-plus --sudo")))
                   << '\n';
         // We could perform a privilege de-escalation here and continue as normal. It is a bit safer though to simply let the user restart without sudo.
         return EXIT_FAILURE;
@@ -73,7 +73,8 @@ int main(int argc, char **argv)
     KIconTheme::initTheme();
 
     QApplication app(argc, argv);
-    app.setWindowIcon(QIcon::fromTheme(QStringLiteral("org.kde.dolphin"), app.windowIcon()));
+    Q_INIT_RESOURCE(dolphin);
+    app.setWindowIcon(QIcon::fromTheme(QStringLiteral("local.dolphinplus"), QIcon(QStringLiteral(":/icons/local.dolphinplus.svg"))));
 
 #if HAVE_STYLE_MANAGER
     /**
@@ -92,13 +93,16 @@ int main(int argc, char **argv)
 
     KLocalizedString::setApplicationDomain(dolphinTranslationDomain);
 
-    KAboutData aboutData(QStringLiteral("dolphin"),
-                         i18n("Dolphin"),
+    KAboutData aboutData(QStringLiteral("dolphinplus"),
+                         i18n("Dolphin Plus"),
                          QStringLiteral(DOLPHIN_VERSION_STRING),
                          i18nc("@title", "File Manager"),
                          KAboutLicense::GPL,
                          i18nc("@info:credit", "© 2006–2025 The Dolphin Developers"));
     aboutData.setHomepage(QStringLiteral("https://apps.kde.org/dolphin"));
+    aboutData.setOrganizationDomain(QByteArrayLiteral("local"));
+    aboutData.setDesktopFileName(QStringLiteral("local.dolphinplus"));
+    aboutData.setBugAddress(QByteArray());
     aboutData.addAuthor(i18nc("@info:credit", "Felix Ernst"),
                         i18nc("@info:credit", "Maintainer (since 2021) and developer"),
                         QStringLiteral("felixernst@kde.org"));
@@ -235,7 +239,7 @@ int main(int argc, char **argv)
     DBusInterface interface;
 
     if (!app.isSessionRestored()) {
-        KConfigGui::setSessionConfig(QStringLiteral("dolphin"), QStringLiteral("dolphin"));
+        KConfigGui::setSessionConfig(QStringLiteral("dolphinplus"), QStringLiteral("dolphinplus"));
     }
 
     // Only restore session if:
@@ -246,7 +250,7 @@ int main(int argc, char **argv)
     // 3. There is a session available to restore
     if (app.isSessionRestored() || GeneralSettings::rememberOpenedTabs()) {
         // Get saved state data for the last-closed Dolphin instance
-        const QString serviceName = QStringLiteral("org.kde.dolphin-%1").arg(QCoreApplication::applicationPid());
+        const QString serviceName = QStringLiteral("local.dolphinplus-%1").arg(QCoreApplication::applicationPid());
         const auto instancesCount = Dolphin::dolphinGuiInstances(serviceName).size();
         if (instancesCount == 1 || (app.isSessionRestored() && instancesCount > 0)) {
             const QString className = KXmlGuiWindow::classNameOfToplevel(1);

@@ -186,6 +186,8 @@ public:
      */
     void markUrlAsCurrent(const QUrl &url);
 
+    bool selectAndRevealUrl(const QUrl &url);
+
     /**
      * All items that match the regular expression \a regexp will get selected
      * if \a enabled is true and deselected if \a enabled is false.

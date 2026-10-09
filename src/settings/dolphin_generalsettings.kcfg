@@ -7,7 +7,7 @@
     <include>QDir</include>
     <include>QUrl</include>
     <include>KCompletion</include>
-    <kcfgfile name="dolphinrc"/>
+    <kcfgfile name="dolphinplusrc"/>
     <signal name="tabBarChanged" />
     <signal name="sortingChoiceChanged" />
     <signal name="splitViewChanged" />
@@ -177,6 +177,16 @@
         </entry>
         <entry name="DynamicView" type="Bool">
             <label>Enable dynamic view</label>
+            <default>false</default>
+        </entry>
+    </group>
+    <group name="ImageViewer">
+        <entry name="ImageViewerOpenFullscreen" key="OpenFullscreen" type="Bool">
+            <label>Open the image viewer in fullscreen</label>
+            <default>false</default>
+        </entry>
+        <entry name="ImageViewerEnlargeSmallerImages" key="EnlargeSmallerImages" type="Bool">
+            <label>Fit smaller images to the viewing area</label>
             <default>false</default>
         </entry>
     </group>

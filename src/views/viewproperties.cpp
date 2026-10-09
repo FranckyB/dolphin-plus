@@ -28,7 +28,7 @@ const int NameRolePropertiesVersion = 2;
 const int DateRolePropertiesVersion = 4;
 const int CurrentViewPropertiesVersion = 4;
 
-const QString MetaDataKey = QStringLiteral("kde.fm.viewproperties#1");
+const QString MetaDataKey = QStringLiteral("dolphinplus.viewproperties#1");
 
 // String representation to mark the additional properties of
 // the details view as customized by the user. See
@@ -36,7 +36,7 @@ const QString MetaDataKey = QStringLiteral("kde.fm.viewproperties#1");
 const char CustomizedDetailsString[] = "CustomizedDetails";
 
 // Filename that is used for storing the properties
-const char ViewPropertiesFileName[] = ".directory";
+const char ViewPropertiesFileName[] = ".dolphinplus";
 }
 
 ViewPropertySettings *ViewProperties::loadProperties(const QString &folderPath) const
@@ -162,7 +162,7 @@ ViewProperties::ViewProperties(const QUrl &url)
     bool useRecentDocumentsView = false;
     bool useDownloadsView = false;
 
-    // We try and save it to the file .directory in the directory being viewed.
+    // We try and save it to the file .dolphinplus in the directory being viewed.
     // If the directory is not writable by the user or the directory is not local,
     // we store the properties information in a local file.
     if (url.scheme().contains(QLatin1String("search"))) {
@@ -510,7 +510,7 @@ QList<QByteArray> ViewProperties::visibleRoles() const
     // view-mode must be checked and the values of this mode added to the list.
     //
     // For the details-view a special case must be respected: Per default the size
-    // and date should be shown without creating a .directory file. Only if
+    // and date should be shown without creating a .dolphinplus file. Only if
     // the user explicitly has modified the properties of the details view (marked
     // by "CustomizedDetails"), also a details-view with no additional information
     // is accepted.
@@ -597,7 +597,7 @@ void ViewProperties::save()
     auto cleanDotDirectoryFile = [this]() {
         const QString settingsFile = m_filePath + QDir::separator() + ViewPropertiesFileName;
         if (QFile::exists(settingsFile)) {
-            qCDebug(DolphinDebug) << "cleaning .directory" << settingsFile;
+            qCDebug(DolphinDebug) << "cleaning .dolphinplus" << settingsFile;
             KConfig cfg(settingsFile, KConfig::OpenFlag::SimpleConfig);
             const auto groupList = cfg.groupList();
             for (const auto &group : groupList) {
@@ -699,7 +699,7 @@ void ViewProperties::save()
             // free the space used by viewproperties from the file metadata
             metaData.setAttribute(MetaDataKey, QString());
             qCWarning(DolphinDebug) << "could not save viewproperties to extended attributes for dir " << m_filePath << ", no space available in attributes";
-            // xattr space exhausted — fall back to .directory file.
+            // xattr space exhausted — fall back to .dolphinplus file.
             // Copy only the Dolphin-managed groups into the existing file using
             // KConfigGroup::copyTo so that unrelated groups (e.g. [Desktop Entry]
             // with a custom folder icon) are left untouched by sync().
@@ -711,7 +711,7 @@ void ViewProperties::save()
                 srcGrp.copyTo(&dstGrp);
             }
             if (!fileConfig.sync()) {
-                qCWarning(DolphinDebug) << "could not save viewproperties to .directory for" << m_filePath;
+                qCWarning(DolphinDebug) << "could not save viewproperties to .dolphinplus for" << m_filePath;
             }
         } else {
             qCWarning(DolphinDebug) << "could not save viewproperties to extended attributes for dir " << m_filePath << "error:" << result;

@@ -189,6 +189,9 @@ DolphinTabPage *DolphinTabWidget::openNewTab(const QUrl &primaryUrl, const QUrl 
     DolphinTabPage *tabPage = new DolphinTabPage(primaryUrl, secondaryUrl, this);
     tabPage->setActive(false);
     connect(tabPage, &DolphinTabPage::activeViewChanged, this, &DolphinTabWidget::activeViewChanged);
+    connect(tabPage, &DolphinTabPage::activationRequested, this, [this, tabPage]() {
+        setCurrentWidget(tabPage);
+    });
     connect(tabPage, &DolphinTabPage::activeViewUrlChanged, this, &DolphinTabWidget::tabUrlChanged);
     connect(tabPage->activeViewContainer(), &DolphinViewContainer::captionChanged, this, [this, tabPage]() {
         updateTabName(indexOf(tabPage));
@@ -407,8 +410,8 @@ void DolphinTabWidget::detachTab(int index)
     }
     args << QStringLiteral("--new-window");
 
-    KIO::CommandLauncherJob *job = new KIO::CommandLauncherJob("dolphin", args, this);
-    job->setDesktopName(QStringLiteral("org.kde.dolphin"));
+    KIO::CommandLauncherJob *job = new KIO::CommandLauncherJob(QCoreApplication::applicationFilePath(), args, this);
+    job->setDesktopName(QStringLiteral("local.dolphinplus"));
     job->start();
 
     closeTab(index);

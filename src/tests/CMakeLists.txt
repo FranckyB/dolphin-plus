@@ -7,6 +7,20 @@ set( EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR} )
 find_package(Qt6Test CONFIG REQUIRED)
 include(ECMAddTests)
 
+find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session)
+find_program(STOCK_DOLPHIN_EXECUTABLE dolphin)
+if(DBUS_RUN_SESSION_EXECUTABLE AND STOCK_DOLPHIN_EXECUTABLE)
+    add_executable(dolphinpluscoexistencetest dolphinpluscoexistencetest.cpp)
+    target_link_libraries(dolphinpluscoexistencetest Qt6::Core Qt6::DBus Qt6::Test)
+    add_dependencies(dolphinpluscoexistencetest dolphin)
+    add_test(NAME dolphinpluscoexistencetest
+        COMMAND ${DBUS_RUN_SESSION_EXECUTABLE} -- $<TARGET_FILE:dolphinpluscoexistencetest>)
+    set_tests_properties(dolphinpluscoexistencetest PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "DOLPHINPLUS_EXECUTABLE=$<TARGET_FILE:dolphin>;STOCK_DOLPHIN_EXECUTABLE=${STOCK_DOLPHIN_EXECUTABLE}"
+    )
+endif()
+
 include(FindGem)  # For servicemenutest, see bottom of this file
 
 # KItemSetTest
@@ -75,6 +89,10 @@ LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test KF6::FileMetaData)
 
 # DolphinMainWindowTest (requires a real window desktop; not reliable on Windows CI)
 if(NOT WIN32)
+    ecm_add_test(dolphinimageviewertest.cpp
+    TEST_NAME dolphinimageviewertest
+    LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)
+
     ecm_add_test(dolphinmainwindowtest.cpp testdir.cpp ${CMAKE_SOURCE_DIR}/src/dolphin.qrc
     TEST_NAME dolphinmainwindowtest
     LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)

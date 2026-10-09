@@ -34,7 +34,7 @@ void openNewWindow(const QList<QUrl> &urls = {}, QWidget *window = nullptr, cons
 /**
  * Attaches URLs to an existing Dolphin instance if possible.
  * If @p preferredService is a valid dbus service, it will be tried first.
- * @p preferredService needs to support the org.kde.dolphin.MainWindow dbus interface with the /dolphin/Dolphin_1 path.
+ * @p preferredService needs to support the org.kde.dolphin.MainWindow dbus interface with the /dolphinplus/Dolphin_1 path.
  * Returns true if the URLs were successfully attached.
  */
 bool attachToExistingInstance(const QList<QUrl> &inputUrls, bool openFiles, bool splitView, const QString &preferredService, const QString &activationToken);

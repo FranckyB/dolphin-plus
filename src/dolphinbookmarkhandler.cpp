@@ -18,16 +18,11 @@ DolphinBookmarkHandler::DolphinBookmarkHandler(DolphinMainWindow *mainWindow, KA
     : QObject(parent)
     , m_mainWindow(mainWindow)
 {
-    QString bookmarksFile = QStandardPaths::locate(QStandardPaths::GenericDataLocation, QStringLiteral("kfile/bookmarks.xml"));
-    if (bookmarksFile.isEmpty()) {
-        QString genericDataLocation = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
-        if (genericDataLocation.isEmpty()) {
-            qWarning() << "GenericDataLocation is empty! Bookmarks will not be saved correctly.";
-        }
-        bookmarksFile = QStringLiteral("%1/dolphin").arg(genericDataLocation);
-        QDir().mkpath(bookmarksFile);
-        bookmarksFile += QLatin1String("/bookmarks.xml");
+    const QString bookmarksDirectory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (!QDir().mkpath(bookmarksDirectory)) {
+        qWarning() << "Could not create bookmarks directory:" << bookmarksDirectory;
     }
+    const QString bookmarksFile = bookmarksDirectory + QStringLiteral("/bookmarks.xml");
     m_bookmarkManager = std::make_unique<KBookmarkManager>(bookmarksFile);
     m_bookmarkMenu.reset(new KBookmarkMenu(m_bookmarkManager.get(), this, menu));
 

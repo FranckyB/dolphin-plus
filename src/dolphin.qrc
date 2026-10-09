@@ -1,6 +1,9 @@
 <RCC>
-<qresource prefix="/kxmlgui5/dolphin">
+<qresource prefix="/kxmlgui5/dolphinplus">
 <file>dolphinui.rc</file>
 <file>dolphinuiforphones.rc</file>
+</qresource>
+<qresource prefix="/icons">
+<file alias="local.dolphinplus.svg">icons/org.kde.dolphin.svg</file>
 </qresource>
 </RCC>

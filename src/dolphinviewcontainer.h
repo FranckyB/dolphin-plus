@@ -18,6 +18,7 @@
 #include <KUrlNavigator>
 
 #include <QElapsedTimer>
+#include <QPointer>
 #include <QPushButton>
 #include <QWidget>
 
@@ -28,6 +29,7 @@ namespace Admin
 class Bar;
 }
 class FilterBar;
+class DolphinImageViewer;
 class QAction;
 class QGridLayout;
 class QUrl;
@@ -268,6 +270,8 @@ Q_SIGNALS:
 
     void selectionModeChanged(bool enabled);
 
+    void imageViewerReturnRequested();
+
     /**
      * Is emitted when the write state of the folder has been changed. The application
      * should disable all actions like "Create New..." that depend on the write
@@ -480,6 +484,7 @@ protected:
 
 private:
     QGridLayout *m_topLayout;
+    QPointer<DolphinImageViewer> m_imageViewer;
 
     /**
      * The internal UrlNavigator which is never visible to the user.

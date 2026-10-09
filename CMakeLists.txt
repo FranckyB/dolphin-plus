@@ -9,7 +9,7 @@ set (RELEASE_SERVICE_VERSION_MAJOR "26")
 set (RELEASE_SERVICE_VERSION_MINOR "08")
 set (RELEASE_SERVICE_VERSION_MICRO "2")
 set (RELEASE_SERVICE_VERSION "${RELEASE_SERVICE_VERSION_MAJOR}.${RELEASE_SERVICE_VERSION_MINOR}.${RELEASE_SERVICE_VERSION_MICRO}")
-project(Dolphin VERSION ${RELEASE_SERVICE_VERSION})
+project(DolphinPlus VERSION ${RELEASE_SERVICE_VERSION})
 
 set(QT_MIN_VERSION "6.4.0")
 set(KF6_MIN_VERSION "6.23.0")
@@ -93,15 +93,7 @@ find_package(KF6 ${KF6_MIN_VERSION} REQUIRED COMPONENTS
     ColorScheme
 )
 
-find_package(KF6UserFeedback ${KF6_MIN_VERSION})
-set_package_properties(KF6UserFeedback
-        PROPERTIES TYPE OPTIONAL
-        PURPOSE "Used for submission of telemetry data"
-        )
-
-if(KF6UserFeedback_FOUND)
-    set(HAVE_KUSERFEEDBACK TRUE)
-endif()
+set(HAVE_KUSERFEEDBACK FALSE)
 
 find_package(KF6 ${KF6_MIN_VERSION} OPTIONAL_COMPONENTS
     DocTools
@@ -131,7 +123,7 @@ set_package_properties(KF6Baloo PROPERTIES DESCRIPTION "Baloo Core libraries"
                        PURPOSE "For adding desktop-wide search and tagging support to dolphin"
                       )
 
-find_package(KF6BalooWidgets ${RELEASE_SERVICE_VERSION})
+find_package(KF6BalooWidgets 26.08.1)
 set_package_properties(KF6BalooWidgets PROPERTIES DESCRIPTION "Baloos Widgets"
                        URL "https://www.kde.org"
                        TYPE OPTIONAL
@@ -172,67 +164,8 @@ else()
 endif()
 
 add_subdirectory(src)
-add_subdirectory(doc)
+add_subdirectory(doc EXCLUDE_FROM_ALL)
 add_subdirectory(appiumtests)
-
-# CMake files
-set(CMAKECONFIG_INSTALL_DIR "${KDE_INSTALL_CMAKEPACKAGEDIR}/DolphinVcs")
-
-configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/DolphinVcsConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/DolphinVcsConfig.cmake"
-    INSTALL_DESTINATION ${CMAKECONFIG_INSTALL_DIR}
-)
-
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/DolphinVcsConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/DolphinVcsConfigVersion.cmake"
-    DESTINATION "${CMAKECONFIG_INSTALL_DIR}"
-    COMPONENT Devel
-)
-
-install(EXPORT DolphinVcsTargets
-    DESTINATION "${CMAKECONFIG_INSTALL_DIR}"
-    FILE DolphinVcsTargets.cmake
-)
-
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/dolphinvcs_version.h"
-    DESTINATION "${KDE_INSTALL_INCLUDEDIR}/Dolphin"
-    COMPONENT Devel
-)
-
-if(FLATPAK)
-    ecm_generate_dbus_service_file(
-        NAME org.freedesktop.FileManager1
-        EXECUTABLE "${KDE_INSTALL_FULL_BINDIR}/dolphin --daemon"
-        SYSTEMD_SERVICE plasma-dolphin.service
-        DESTINATION ${KDE_INSTALL_DBUSSERVICEDIR}
-    )
-else()
-    ecm_generate_dbus_service_file(
-        NAME org.freedesktop.FileManager1
-        EXECUTABLE "${KDE_INSTALL_FULL_BINDIR}/dolphin --daemon"
-        SYSTEMD_SERVICE plasma-dolphin.service
-        DESTINATION ${KDE_INSTALL_DBUSSERVICEDIR}
-        RENAME org.kde.dolphin.FileManager1.service
-    )
-endif()
-
-ecm_install_configured_files(INPUT plasma-dolphin.service.in DESTINATION ${KDE_INSTALL_SYSTEMDUSERUNITDIR})
-
-ecm_qt_install_logging_categories(
-        EXPORT DOLPHIN
-        FILE dolphin.categories
-        DESTINATION ${KDE_INSTALL_LOGGINGCATEGORIESDIR}
-        )
-
-ki18n_install(po)
-if(KF6DocTools_FOUND)
-    kdoctools_install(po)
-endif()
-
-install(FILES completions/dolphin.zsh RENAME _dolphin DESTINATION ${KDE_INSTALL_ZSHAUTOCOMPLETEDIR})
 
 feature_summary(WHAT ALL FATAL_ON_MISSING_REQUIRED_PACKAGES)
 

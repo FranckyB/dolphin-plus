@@ -7,6 +7,7 @@
 #include "dolphinmainwindow.h"
 #include "dolphin_detailsmodesettings.h"
 #include "dolphin_generalsettings.h"
+#include "dolphinimageviewer.h"
 #include "dolphinnewfilemenu.h"
 #include "dolphintabpage.h"
 #include "dolphintabwidget.h"
@@ -27,6 +28,7 @@
 #include <KConfig>
 #include <KConfigGui>
 #include <KFileItem>
+#include <KIO/ListJob>
 
 #include <QAccessible>
 #include <QApplication>
@@ -73,6 +75,15 @@ private Q_SLOTS:
     void testFocusOtherView();
     void testPlacesPanelWidthResistance();
     void testGoActions();
+    void testSiblingNavigation();
+    void testSiblingNavigationCancellation();
+    void testSiblingNavigationSplitView();
+    void testSiblingNavigationSymlink();
+    void testImageViewerReturn();
+    void testImageViewerSiblingReturn_data();
+    void testImageViewerSiblingReturn();
+    void testImageViewerCancellation();
+    void testImageViewerRemovedFileAndTabClosure();
     void testOpenFiles();
     void testAccessibilityTree();
     void testAutoSaveSession();
@@ -120,13 +131,13 @@ void DolphinMainWindowTest::testSyncDesktopAndPhoneUi()
     std::unordered_set<QString> exceptions{{QStringLiteral("version"), QStringLiteral("ToolBar")}};
 
     QDomDocument desktopUi;
-    QFile desktopUiXmlFile(":/kxmlgui5/dolphin/dolphinui.rc");
+    QFile desktopUiXmlFile(":/kxmlgui5/dolphinplus/dolphinui.rc");
     QVERIFY2(desktopUiXmlFile.open(QIODevice::ReadOnly), qPrintable(QStringLiteral("couldn't open %1").arg(desktopUiXmlFile.fileName())));
     desktopUi.setContent(&desktopUiXmlFile);
     desktopUiXmlFile.close();
 
     QDomDocument phoneUi;
-    QFile phoneUiXmlFile(":/kxmlgui5/dolphin/dolphinuiforphones.rc");
+    QFile phoneUiXmlFile(":/kxmlgui5/dolphinplus/dolphinuiforphones.rc");
     QVERIFY2(phoneUiXmlFile.open(QIODevice::ReadOnly), qPrintable(QStringLiteral("couldn't open %1").arg(phoneUiXmlFile.fileName())));
     phoneUi.setContent(&phoneUiXmlFile);
     phoneUiXmlFile.close();
@@ -921,6 +932,167 @@ void DolphinMainWindowTest::testPlacesPanelWidthResistance()
     QCOMPARE(placesPanel->width(), initialPlacesPanelWidth);
 }
 
+void DolphinMainWindowTest::testSiblingNavigation()
+{
+    TestDir directory;
+    for (const QString &name :
+         {QStringLiteral("Folder 1"), QStringLiteral("folder 2"), QStringLiteral("Folder 10"), QStringLiteral("Folder 20 #%"), QStringLiteral(".hidden")}) {
+        directory.createDir(name);
+    }
+    directory.createFile(QStringLiteral("Folder 3"));
+    const auto folderUrl = [&directory](const QString &name) {
+        return QUrl::fromLocalFile(directory.filePath(name));
+    };
+    const QUrl first = folderUrl(QStringLiteral("Folder 1"));
+    const QUrl second = folderUrl(QStringLiteral("folder 2"));
+    const QUrl third = folderUrl(QStringLiteral("Folder 10"));
+    const QUrl last = folderUrl(QStringLiteral("Folder 20 #%"));
+    m_mainWindow->openDirectories({first}, false);
+    auto *container = m_mainWindow->activeViewContainer();
+    auto *next = m_mainWindow->actionCollection()->action(QStringLiteral("go_next_sibling"));
+    auto *previous = m_mainWindow->actionCollection()->action(QStringLiteral("go_previous_sibling"));
+    QVERIFY(next);
+    QVERIFY(previous);
+    QVERIFY(next->shortcuts().isEmpty());
+    QVERIFY(previous->shortcuts().isEmpty());
+    QTRY_VERIFY(next->isEnabled());
+    QTRY_VERIFY(!m_mainWindow->actionCollection()->action(QStringLiteral("stop"))->isEnabled());
+    const int tabCount = m_mainWindow->m_tabWidget->count();
+    const int historySize = container->urlNavigatorInternalWithHistory()->historySize();
+
+    previous->trigger();
+    QTRY_VERIFY(m_mainWindow->m_siblingNavigationJob.isNull());
+    QCOMPARE(container->url(), first);
+    QCOMPARE(container->urlNavigatorInternalWithHistory()->historySize(), historySize);
+
+    next->trigger();
+    const QPointer<KIO::ListJob> pendingJob = m_mainWindow->m_siblingNavigationJob;
+    QVERIFY(pendingJob);
+    QVERIFY(!next->isEnabled());
+    QVERIFY(!previous->isEnabled());
+    next->trigger();
+    QCOMPARE(m_mainWindow->m_siblingNavigationJob, pendingJob);
+    QTRY_COMPARE(container->url(), second);
+    QTRY_VERIFY(next->isEnabled());
+    QTRY_VERIFY(!m_mainWindow->actionCollection()->action(QStringLiteral("stop"))->isEnabled());
+    QCOMPARE(m_mainWindow->m_tabWidget->count(), tabCount);
+    QCOMPARE(m_mainWindow->activeViewContainer(), container);
+
+    m_mainWindow->actionCollection()->action(KStandardAction::name(KStandardAction::Back))->trigger();
+    QTRY_COMPARE(container->url(), first);
+    m_mainWindow->actionCollection()->action(KStandardAction::name(KStandardAction::Forward))->trigger();
+    QTRY_COMPARE(container->url(), second);
+    next->trigger();
+    QTRY_COMPARE(container->url(), third);
+    next->trigger();
+    QTRY_COMPARE(container->url(), last);
+    next->trigger();
+    QTRY_VERIFY(m_mainWindow->m_siblingNavigationJob.isNull());
+    QCOMPARE(container->url(), last);
+    previous->trigger();
+    QTRY_COMPARE(container->url(), third);
+    QCOMPARE(m_mainWindow->m_tabWidget->count(), tabCount);
+
+    container->setUrl(folderUrl(QStringLiteral(".hidden")));
+    QVERIFY(!next->isEnabled());
+    QVERIFY(!previous->isEnabled());
+    container->setUrl(QUrl::fromLocalFile(QDir::rootPath()));
+    QVERIFY(!next->isEnabled());
+    QVERIFY(!previous->isEnabled());
+    container->setUrl(QUrl(QStringLiteral("trash:/")));
+    QVERIFY(!next->isEnabled());
+    QVERIFY(!previous->isEnabled());
+}
+
+void DolphinMainWindowTest::testSiblingNavigationCancellation()
+{
+    TestDir directory;
+    directory.createDir(QStringLiteral("Folder 1"));
+    directory.createDir(QStringLiteral("Folder 2"));
+    directory.createDir(QStringLiteral("Folder 3"));
+    const QUrl first = QUrl::fromLocalFile(directory.filePath(QStringLiteral("Folder 1")));
+    const QUrl third = QUrl::fromLocalFile(directory.filePath(QStringLiteral("Folder 3")));
+    m_mainWindow->openDirectories({first}, false);
+    auto *container = m_mainWindow->activeViewContainer();
+    auto *next = m_mainWindow->actionCollection()->action(QStringLiteral("go_next_sibling"));
+    next->trigger();
+    QPointer<KIO::ListJob> cancelledJob = m_mainWindow->m_siblingNavigationJob;
+    QVERIFY(cancelledJob);
+    container->setUrl(third);
+    QVERIFY(m_mainWindow->m_siblingNavigationJob.isNull());
+    QTRY_VERIFY(cancelledJob.isNull());
+    QCOMPARE(container->url(), third);
+    QTRY_VERIFY(next->isEnabled());
+
+    next->trigger();
+    cancelledJob = m_mainWindow->m_siblingNavigationJob;
+    QVERIFY(cancelledJob);
+    m_mainWindow->m_tabWidget->openNewActivatedTab(first);
+    QVERIFY(m_mainWindow->m_siblingNavigationJob.isNull());
+    QTRY_VERIFY(cancelledJob.isNull());
+    QCOMPARE(container->url(), third);
+    QCOMPARE(m_mainWindow->activeViewContainer()->url(), first);
+    QTRY_VERIFY(next->isEnabled());
+}
+
+void DolphinMainWindowTest::testSiblingNavigationSplitView()
+{
+    TestDir directory;
+    directory.createDir(QStringLiteral("left/Folder 1"));
+    directory.createDir(QStringLiteral("left/Folder 2"));
+    directory.createDir(QStringLiteral("right/Other"));
+    const QUrl first = QUrl::fromLocalFile(directory.filePath(QStringLiteral("left/Folder 1")));
+    const QUrl second = QUrl::fromLocalFile(directory.filePath(QStringLiteral("left/Folder 2")));
+    const QUrl other = QUrl::fromLocalFile(directory.filePath(QStringLiteral("right/Other")));
+    m_mainWindow->openDirectories({first, other}, true);
+    auto *tab = m_mainWindow->m_tabWidget->currentTabPage();
+    auto *primary = tab->primaryViewContainer();
+    auto *secondary = tab->secondaryViewContainer();
+    QVERIFY(secondary);
+    primary->setActive(true);
+    QCOMPARE(m_mainWindow->activeViewContainer(), primary);
+    auto *next = m_mainWindow->actionCollection()->action(QStringLiteral("go_next_sibling"));
+    next->trigger();
+    QTRY_COMPARE(primary->url(), second);
+    QCOMPARE(secondary->url(), other);
+    QCOMPARE(m_mainWindow->m_tabWidget->count(), 1);
+    QVERIFY(tab->splitViewEnabled());
+
+    primary->setUrl(first);
+    next->trigger();
+    const QPointer<KIO::ListJob> cancelledJob = m_mainWindow->m_siblingNavigationJob;
+    QVERIFY(cancelledJob);
+    secondary->setActive(true);
+    QVERIFY(m_mainWindow->m_siblingNavigationJob.isNull());
+    QTRY_VERIFY(cancelledJob.isNull());
+    QCOMPARE(primary->url(), first);
+    QCOMPARE(secondary->url(), other);
+    QCOMPARE(m_mainWindow->activeViewContainer(), secondary);
+    QTRY_VERIFY(next->isEnabled());
+}
+
+void DolphinMainWindowTest::testSiblingNavigationSymlink()
+{
+#ifndef Q_OS_UNIX
+    QSKIP("This test requires directory symlinks.");
+#else
+    TestDir directory;
+    TestDir target;
+    directory.createDir(QStringLiteral("Folder 1"));
+    directory.createDir(QStringLiteral("Folder 3"));
+    const QString linkPath = directory.filePath(QStringLiteral("Folder 2"));
+    QVERIFY(QFile::link(target.path(), linkPath));
+    const QUrl first = QUrl::fromLocalFile(directory.filePath(QStringLiteral("Folder 1")));
+    m_mainWindow->openDirectories({first}, false);
+    auto *container = m_mainWindow->activeViewContainer();
+    auto *next = m_mainWindow->actionCollection()->action(QStringLiteral("go_next_sibling"));
+    next->trigger();
+    QTRY_COMPARE(container->url(), QUrl::fromLocalFile(linkPath));
+    next->trigger();
+    QTRY_COMPARE(container->url(), QUrl::fromLocalFile(directory.filePath(QStringLiteral("Folder 3"))));
+#endif
+}
+
 void DolphinMainWindowTest::testGoActions()
 {
     QScopedPointer<TestDir> testDir{new TestDir()};
@@ -1036,6 +1208,199 @@ void DolphinMainWindowTest::testGoActions()
     QVERIFY(!m_mainWindow->actionCollection()->action(KStandardAction::name(KStandardAction::Back))->isEnabled());
     QVERIFY(!m_mainWindow->actionCollection()->action(KStandardAction::name(KStandardAction::Forward))->isEnabled());
     QVERIFY(m_mainWindow->actionCollection()->action(QStringLiteral("undo_close_tab"))->isEnabled());
+}
+
+void DolphinMainWindowTest::testImageViewerReturn()
+{
+    if (!DolphinImageViewer::supportsMimeType(QStringLiteral("image/png"))) {
+        QSKIP("Gwenview's image KPart is not installed.");
+    }
+    TestDir directory;
+    directory.createDir(QStringLiteral("other"));
+    directory.createFile(QStringLiteral("notes.txt"));
+    QImage image(80, 60, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    for (const QString &name :
+         {QStringLiteral("photo 1.png"), QStringLiteral("photo 2 #%.png"), QStringLiteral("photo 10.png"), QStringLiteral("hidden.png")}) {
+        QVERIFY(image.save(directory.filePath(name)));
+    }
+    const QUrl other = QUrl::fromLocalFile(directory.filePath(QStringLiteral("other")));
+    m_mainWindow->openDirectories({directory.url(), other}, true);
+    m_mainWindow->show();
+    auto *tab = m_mainWindow->m_tabWidget->currentTabPage();
+    auto *origin = tab->primaryViewContainer();
+    auto *secondary = tab->secondaryViewContainer();
+    auto *view = origin->view();
+    origin->setActive(true);
+    QTRY_COMPARE(view->itemsCount(), 6);
+    view->setNameFilter(QStringLiteral("photo"));
+    view->setSortOrder(Qt::DescendingOrder);
+    QTRY_COMPARE(view->itemsCount(), 3);
+    const auto images = view->items();
+    const int historySize = origin->urlNavigatorInternalWithHistory()->historySize();
+    QSignalSpy reloads(view, &DolphinView::directoryLoadingStarted);
+    QVERIFY(view->selectAndRevealUrl(images.first().url()));
+    Q_EMIT view->itemActivated(images.first());
+    QPointer<DolphinImageViewer> viewer = origin->findChild<DolphinImageViewer *>();
+    QVERIFY(viewer);
+    QCOMPARE(viewer->currentUrl(), images.first().url());
+    QTRY_VERIFY(viewer->isActiveWindow());
+    QTest::keyClick(viewer, Qt::Key_Right);
+    QCOMPARE(viewer->currentUrl(), images.at(1).url());
+    secondary->setActive(true);
+    m_mainWindow->m_tabWidget->openNewActivatedTab(other);
+    QCOMPARE(m_mainWindow->m_tabWidget->currentIndex(), 1);
+    viewer->activateWindow();
+    QTRY_VERIFY(viewer->isActiveWindow());
+    QTest::keyClick(viewer, Qt::Key_Return);
+    QTRY_VERIFY(viewer.isNull());
+    QCOMPARE(m_mainWindow->m_tabWidget->currentIndex(), 0);
+    QCOMPARE(m_mainWindow->activeViewContainer(), origin);
+    QCOMPARE(view->selectedItems().urlList(), QList<QUrl>{images.at(1).url()});
+    const auto *selection = view->m_container->controller()->selectionManager();
+    QCOMPARE(view->m_model->fileItem(selection->currentItem()).url(), images.at(1).url());
+    QCOMPARE(secondary->url(), other);
+    QVERIFY(secondary->view()->selectedItems().isEmpty());
+    QCOMPARE(origin->urlNavigatorInternalWithHistory()->historySize(), historySize);
+    QCOMPARE(reloads.count(), 0);
+    QCOMPARE(m_mainWindow->m_tabWidget->count(), 2);
+}
+
+void DolphinMainWindowTest::testImageViewerSiblingReturn_data()
+{
+    QTest::addColumn<bool>("roundTrip");
+    QTest::newRow("sibling-folder") << false;
+    QTest::newRow("original-folder-filtered-image") << true;
+}
+
+void DolphinMainWindowTest::testImageViewerSiblingReturn()
+{
+    QFETCH(bool, roundTrip);
+    if (!DolphinImageViewer::supportsMimeType(QStringLiteral("image/png"))) {
+        QSKIP("Gwenview's image KPart is not installed.");
+    }
+    TestDir directory;
+    directory.createDir(QStringLiteral("folder 1"));
+    directory.createDir(QStringLiteral("folder 2 #%"));
+    const QUrl firstFolder = QUrl::fromLocalFile(directory.filePath(QStringLiteral("folder 1")));
+    const QUrl secondFolder = QUrl::fromLocalFile(directory.filePath(QStringLiteral("folder 2 #%")));
+    const QUrl first = QUrl::fromLocalFile(directory.filePath(QStringLiteral("folder 1/photo.png")));
+    const QUrl filtered = QUrl::fromLocalFile(directory.filePath(QStringLiteral("folder 1/extra.png")));
+    const QUrl second = QUrl::fromLocalFile(directory.filePath(QStringLiteral("folder 2 #%/drawing.png")));
+    QImage image(80, 60, QImage::Format_RGB32);
+    image.fill(Qt::green);
+    QVERIFY(image.save(first.toLocalFile()));
+    QVERIFY(image.save(filtered.toLocalFile()));
+    QVERIFY(image.save(second.toLocalFile()));
+    m_mainWindow->openDirectories({firstFolder, directory.url()}, true);
+    m_mainWindow->show();
+    auto *tab = m_mainWindow->m_tabWidget->currentTabPage();
+    auto *origin = tab->primaryViewContainer();
+    auto *secondary = tab->secondaryViewContainer();
+    auto *view = origin->view();
+    origin->setActive(true);
+    QTRY_COMPARE(view->itemsCount(), 2);
+    view->setNameFilter(QStringLiteral("photo"));
+    QTRY_COMPARE(view->itemsCount(), 1);
+    QVERIFY(view->selectAndRevealUrl(first));
+    Q_EMIT view->itemActivated(KFileItem(first));
+    QPointer<DolphinImageViewer> viewer = origin->findChild<DolphinImageViewer *>();
+    QVERIFY(viewer);
+    viewer->actionCollection()->action(QStringLiteral("viewer_next"))->trigger();
+    QTRY_COMPARE(viewer->currentUrl(), second);
+    QCOMPARE(viewer->currentDirectory(), secondFolder);
+    if (roundTrip) {
+        viewer->actionCollection()->action(QStringLiteral("viewer_previous_sibling"))->trigger();
+        QTRY_COMPARE(viewer->currentUrl(), filtered);
+    }
+    const QUrl expectedFolder = roundTrip ? firstFolder : secondFolder;
+    const QUrl expectedImage = roundTrip ? filtered : second;
+    QCOMPARE(origin->url(), firstFolder);
+    const int historySize = origin->urlNavigatorInternalWithHistory()->historySize();
+    QSignalSpy reloads(view, &DolphinView::directoryLoadingStarted);
+    secondary->setActive(true);
+    m_mainWindow->m_tabWidget->openNewActivatedTab(directory.url());
+    viewer->activateWindow();
+    QTRY_VERIFY(viewer->isActiveWindow());
+    QTest::keyClick(viewer, Qt::Key_Return);
+    QTRY_VERIFY(viewer.isNull());
+    QCOMPARE(m_mainWindow->m_tabWidget->currentIndex(), 0);
+    QCOMPARE(m_mainWindow->activeViewContainer(), origin);
+    QCOMPARE(origin->url(), expectedFolder);
+    QTRY_COMPARE(view->selectedItems().urlList(), QList<QUrl>{expectedImage});
+    const auto *selection = view->m_container->controller()->selectionManager();
+    QCOMPARE(view->m_model->fileItem(selection->currentItem()).url(), expectedImage);
+    QVERIFY(view->nameFilter().isEmpty());
+    QCOMPARE(secondary->url(), directory.url());
+    QVERIFY(secondary->view()->selectedItems().isEmpty());
+    QCOMPARE(m_mainWindow->m_tabWidget->tabPageAt(1)->activeViewContainer()->url(), directory.url());
+    QCOMPARE(origin->urlNavigatorInternalWithHistory()->historySize(), historySize + (roundTrip ? 0 : 1));
+    QCOMPARE(reloads.count(), roundTrip ? 0 : 1);
+}
+
+void DolphinMainWindowTest::testImageViewerCancellation()
+{
+    if (!DolphinImageViewer::supportsMimeType(QStringLiteral("image/png"))) {
+        QSKIP("Gwenview's image KPart is not installed.");
+    }
+    TestDir directory;
+    directory.createDir(QStringLiteral("other"));
+    QImage image(80, 60, QImage::Format_RGB32);
+    image.fill(Qt::blue);
+    QVERIFY(image.save(directory.filePath(QStringLiteral("image.png"))));
+    m_mainWindow->openDirectories({directory.url()}, false);
+    auto *origin = m_mainWindow->activeViewContainer();
+    auto *view = origin->view();
+    QTRY_COMPARE(view->itemsCount(), 2);
+    const KFileItem item(QUrl::fromLocalFile(directory.filePath(QStringLiteral("image.png"))));
+    Q_EMIT view->itemActivated(item);
+    QPointer<DolphinImageViewer> viewer = origin->findChild<DolphinImageViewer *>();
+    QVERIFY(viewer);
+    QSignalSpy returned(origin, &DolphinViewContainer::imageViewerReturnRequested);
+    origin->setUrl(QUrl::fromLocalFile(directory.filePath(QStringLiteral("other"))));
+    QTRY_VERIFY(viewer.isNull());
+    QCOMPARE(returned.count(), 0);
+    QVERIFY(view->selectedItems().isEmpty());
+}
+
+void DolphinMainWindowTest::testImageViewerRemovedFileAndTabClosure()
+{
+    if (!DolphinImageViewer::supportsMimeType(QStringLiteral("image/png"))) {
+        QSKIP("Gwenview's image KPart is not installed.");
+    }
+    TestDir directory;
+    directory.createDir(QStringLiteral("other"));
+    QImage image(80, 60, QImage::Format_RGB32);
+    image.fill(Qt::yellow);
+    const QUrl first = QUrl::fromLocalFile(directory.filePath(QStringLiteral("first.png")));
+    const QUrl second = QUrl::fromLocalFile(directory.filePath(QStringLiteral("second.png")));
+    QVERIFY(image.save(first.toLocalFile()));
+    QVERIFY(image.save(second.toLocalFile()));
+    m_mainWindow->openDirectories({directory.url()}, false);
+    m_mainWindow->show();
+    auto *origin = m_mainWindow->activeViewContainer();
+    auto *view = origin->view();
+    QTRY_COMPARE(view->itemsCount(), 3);
+    QVERIFY(view->selectAndRevealUrl(first));
+    Q_EMIT view->itemActivated(KFileItem(first));
+    QPointer<DolphinImageViewer> viewer = origin->findChild<DolphinImageViewer *>();
+    QVERIFY(viewer);
+    Q_EMIT view->itemActivated(KFileItem(second));
+    QCOMPARE(origin->findChildren<DolphinImageViewer *>().count(), 1);
+    QCOMPARE(viewer->currentUrl(), second);
+    QTRY_VERIFY(viewer->isActiveWindow());
+    QVERIFY(QFile::remove(second.toLocalFile()));
+    QTest::keyClick(viewer, Qt::Key_Escape);
+    QTRY_VERIFY(viewer.isNull());
+    QCOMPARE(view->selectedItems().urlList(), QList<QUrl>{first});
+
+    Q_EMIT view->itemActivated(KFileItem(first));
+    viewer = origin->findChild<DolphinImageViewer *>();
+    QVERIFY(viewer);
+    m_mainWindow->m_tabWidget->openNewActivatedTab(QUrl::fromLocalFile(directory.filePath(QStringLiteral("other"))));
+    m_mainWindow->m_tabWidget->closeTab(0);
+    QTRY_VERIFY(viewer.isNull());
+    QCOMPARE(m_mainWindow->m_tabWidget->count(), 1);
 }
 
 void DolphinMainWindowTest::testOpenFiles()

@@ -153,6 +153,7 @@ public:
     QString customLabel() const;
 
 Q_SIGNALS:
+    void activationRequested();
     void activeViewChanged(DolphinViewContainer *viewContainer);
     void activeViewUrlChanged(const QUrl &url);
 

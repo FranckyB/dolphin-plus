@@ -12,6 +12,7 @@
 #include "dolphinmainwindow.h"
 #include "interface/interfacesettingspage.h"
 #include "trash/trashsettingspage.h"
+#include "viewer/viewersettingspage.h"
 #include "viewmodes/viewsettingspage.h"
 #if HAVE_KUSERFEEDBACK
 #include "userfeedback/dolphinfeedbackprovider.h"
@@ -52,6 +53,11 @@ DolphinSettingsDialog::DolphinSettingsDialog(const QUrl &url, QWidget *parent, K
     KPageWidgetItem *viewSettingsFrame = addPage(viewSettingsPage, i18nc("@title:group", "View"));
     viewSettingsFrame->setIcon(QIcon::fromTheme(QStringLiteral("preferences-desktop-icons")));
     connect(viewSettingsPage, &ViewSettingsPage::changed, this, &DolphinSettingsDialog::enableApply);
+
+    auto *viewerSettingsPage = new ViewerSettingsPage(this);
+    auto *viewerSettingsFrame = addPage(viewerSettingsPage, i18nc("@title:group", "Image Viewer"));
+    viewerSettingsFrame->setIcon(QIcon::fromTheme(QStringLiteral("image-x-generic")));
+    connect(viewerSettingsPage, &ViewerSettingsPage::changed, this, &DolphinSettingsDialog::enableApply);
 
     // Context Menu
     auto contextMenuSettingsPage = new ContextMenuSettingsPage(this,
@@ -95,6 +101,7 @@ DolphinSettingsDialog::DolphinSettingsDialog(const QUrl &url, QWidget *parent, K
 
     m_pages.append(interfaceSettingsPage);
     m_pages.append(viewSettingsPage);
+    m_pages.append(viewerSettingsPage);
     m_pages.append(contextMenuSettingsPage);
     if (trashSettingsPage) {
         m_pages.append(trashSettingsPage);
