@@ -12,17 +12,24 @@
 #include <KContextualHelpButton>
 #include <KIO/PreviewJob>
 #include <KLocalizedString>
+#include <KMessageBox>
 #include <KPluginMetaData>
 
 #include <QCheckBox>
+#include <QComboBox>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QImageReader>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListView>
+#include <QPainter>
 #include <QScroller>
 #include <QShowEvent>
 #include <QSortFilterProxyModel>
 #include <QSpinBox>
+#include <QToolButton>
 
 // default settings
 namespace
@@ -237,6 +244,171 @@ void PreviewsSettingsPage::loadSettings()
     m_remoteFileSizeBox->setValue(maxRemoteMByteSize);
 
     m_enableRemoteFolderThumbnail->setChecked(globalConfig.readEntry("EnableRemoteFolderThumbnail", EnableRemoteFolderThumbnail));
+}
+
+FolderCoversSettingsPage::FolderCoversSettingsPage(QWidget *parent)
+    : SettingsPageBase(parent)
+{
+    auto *layout = new QVBoxLayout(this);
+    auto *modeForm = new QFormLayout;
+    m_coverMode = new QComboBox(this);
+    m_coverMode->setObjectName(QStringLiteral("folder_cover_mode"));
+    m_coverMode->addItems(
+        {i18nc("@item:inlistbox", "Standard Dolphin previews"), i18nc("@item:inlistbox", "Single cover"), i18nc("@item:inlistbox", "No folder previews")});
+    modeForm->addRow(i18nc("@label:listbox", "Folder previews:"), m_coverMode);
+    layout->addLayout(modeForm);
+
+    m_coverOptions = new QWidget(this);
+    auto *optionsLayout = new QHBoxLayout(m_coverOptions);
+    optionsLayout->setContentsMargins(0, 0, 0, 0);
+    auto *form = new QFormLayout;
+    const auto addPath = [this, form](const QString &label, const QString &name) {
+        auto *path = new QLineEdit(m_coverOptions);
+        path->setObjectName(name);
+        auto *browse = new QToolButton(m_coverOptions);
+        browse->setIcon(QIcon::fromTheme(QStringLiteral("document-open")));
+        browse->setToolTip(i18nc("@info:tooltip", "Choose image"));
+        auto *row = new QHBoxLayout;
+        row->addWidget(path);
+        row->addWidget(browse);
+        form->addRow(label, row);
+        connect(browse, &QToolButton::clicked, this, [this, path]() {
+            const QString chosen =
+                QFileDialog::getOpenFileName(this, i18nc("@title:window", "Choose Image"), path->text(), i18n("Images (*.png *.webp *.jpg *.jpeg *.bmp)"));
+            if (!chosen.isEmpty()) {
+                path->setText(chosen);
+            }
+        });
+        return path;
+    };
+    m_templatePath = addPath(i18nc("@label:textbox", "Folder template:"), QStringLiteral("folder_cover_template"));
+    m_templatePath->setPlaceholderText(i18nc("@info:placeholder", "Built-in blue folder"));
+    m_samplePath = addPath(i18nc("@label:textbox", "Preview image:"), QStringLiteral("folder_cover_sample"));
+    const auto addNumber = [this, form](const QString &label, const QString &name, int minimum, int maximum) {
+        auto *number = new QSpinBox(m_coverOptions);
+        number->setObjectName(name);
+        number->setRange(minimum, maximum);
+        form->addRow(label, number);
+        return number;
+    };
+    form->addRow(new QLabel(i18nc("@title:group", "Content region (256 x 256 template coordinates)"), m_coverOptions));
+    m_contentX = addNumber(i18nc("@label:spinbox", "X:"), QStringLiteral("folder_cover_x"), 0, 255);
+    m_contentY = addNumber(i18nc("@label:spinbox", "Y:"), QStringLiteral("folder_cover_y"), 0, 255);
+    m_contentWidth = addNumber(i18nc("@label:spinbox", "Width:"), QStringLiteral("folder_cover_width"), 1, 256);
+    m_contentHeight = addNumber(i18nc("@label:spinbox", "Height:"), QStringLiteral("folder_cover_height"), 1, 256);
+    m_cornerRadius = addNumber(i18nc("@label:spinbox", "Corner radius:"), QStringLiteral("folder_cover_radius"), 0, 128);
+    m_subfolderDepth = addNumber(i18nc("@label:spinbox", "Subfolder search depth:"), QStringLiteral("folder_cover_depth"), 0, 4);
+    m_subfolderDepth->setSpecialValueText(i18nc("@item:inlistbox", "This folder only"));
+    m_videoFallback = new QCheckBox(i18nc("@option:check", "Use a video frame when no image is readable"), m_coverOptions);
+    m_respectCustomIcons = new QCheckBox(i18nc("@option:check", "Keep existing custom folder icons"), m_coverOptions);
+    m_respectCustomIcons->setObjectName(QStringLiteral("folder_cover_respect_icons"));
+    form->addRow(m_videoFallback);
+    form->addRow(m_respectCustomIcons);
+    optionsLayout->addLayout(form, 1);
+    m_coverPreview = new QLabel(m_coverOptions);
+    m_coverPreview->setObjectName(QStringLiteral("folder_cover_preview"));
+    m_coverPreview->setFixedSize(256, 256);
+    m_coverPreview->setAlignment(Qt::AlignCenter);
+    m_coverPreview->setWordWrap(true);
+    optionsLayout->addWidget(m_coverPreview, 0, Qt::AlignTop);
+    layout->addWidget(m_coverOptions);
+    layout->addStretch();
+    loadForm(FolderCover::loadSettings());
+
+    const auto update = [this]() {
+        updatePreview();
+        Q_EMIT changed();
+    };
+    connect(m_coverMode, &QComboBox::currentIndexChanged, this, update);
+    connect(m_templatePath, &QLineEdit::textChanged, this, update);
+    connect(m_samplePath, &QLineEdit::textChanged, this, &FolderCoversSettingsPage::updatePreview);
+    for (auto *number : {m_contentX, m_contentY, m_contentWidth, m_contentHeight, m_cornerRadius, m_subfolderDepth}) {
+        connect(number, &QSpinBox::valueChanged, this, update);
+    }
+    connect(m_videoFallback, &QCheckBox::toggled, this, update);
+    connect(m_respectCustomIcons, &QCheckBox::toggled, this, update);
+}
+
+FolderCover::Settings FolderCoversSettingsPage::formSettings() const
+{
+    FolderCover::Settings settings;
+    settings.mode = static_cast<FolderCover::Mode>(m_coverMode->currentIndex());
+    if (!m_templatePath->text().trimmed().isEmpty()) {
+        settings.templatePath = m_templatePath->text().trimmed();
+    }
+    settings.contentRect = QRect(m_contentX->value(), m_contentY->value(), m_contentWidth->value(), m_contentHeight->value());
+    settings.radius = m_cornerRadius->value();
+    settings.subfolderDepth = m_subfolderDepth->value();
+    settings.videoFallback = m_videoFallback->isChecked();
+    settings.respectCustomIcons = m_respectCustomIcons->isChecked();
+    return settings;
+}
+
+void FolderCoversSettingsPage::loadForm(const FolderCover::Settings &settings)
+{
+    m_coverMode->setCurrentIndex(int(settings.mode));
+    m_templatePath->setText(settings.templatePath == FolderCover::Settings().templatePath ? QString() : settings.templatePath);
+    m_contentX->setValue(settings.contentRect.x());
+    m_contentY->setValue(settings.contentRect.y());
+    m_contentWidth->setMaximum(256 - settings.contentRect.x());
+    m_contentHeight->setMaximum(256 - settings.contentRect.y());
+    m_contentWidth->setValue(settings.contentRect.width());
+    m_contentHeight->setValue(settings.contentRect.height());
+    m_cornerRadius->setValue(settings.radius);
+    m_subfolderDepth->setValue(settings.subfolderDepth);
+    m_videoFallback->setChecked(settings.videoFallback);
+    m_respectCustomIcons->setChecked(settings.respectCustomIcons);
+    updatePreview();
+}
+
+void FolderCoversSettingsPage::updatePreview()
+{
+    m_contentWidth->setMaximum(256 - m_contentX->value());
+    m_contentHeight->setMaximum(256 - m_contentY->value());
+    const auto settings = formSettings();
+    m_coverOptions->setEnabled(settings.mode == FolderCover::Mode::SingleCover);
+    QImageReader templateReader(settings.templatePath);
+    templateReader.setScaledSize(QSize(256, 256));
+    const QImage folder = templateReader.read();
+    QImage sample;
+    if (!m_samplePath->text().isEmpty()) {
+        QImageReader reader(m_samplePath->text());
+        reader.setAutoTransform(true);
+        if (reader.size().isValid()) {
+            reader.setScaledSize(reader.size().scaled(QSize(512, 512), Qt::KeepAspectRatio));
+        }
+        sample = reader.read();
+    } else {
+        sample = QImage(256, 256, QImage::Format_RGB32);
+        QPainter painter(&sample);
+        for (int row = 0; row < 16; ++row) {
+            for (int column = 0; column < 16; ++column) {
+                painter.fillRect(column * 16, row * 16, 16, 16, (row + column) % 2 ? QColor(220, 220, 220) : QColor(160, 160, 160));
+            }
+        }
+    }
+    const QImage cover = FolderCover::compose(folder, sample, settings, QSize(256, 256));
+    if (cover.isNull()) {
+        m_coverPreview->setText(i18nc("@info", "Cannot read the template or preview image."));
+    } else {
+        m_coverPreview->setPixmap(QPixmap::fromImage(cover));
+    }
+}
+
+void FolderCoversSettingsPage::applySettings()
+{
+    const auto settings = formSettings();
+    if (settings.mode == FolderCover::Mode::SingleCover && !QImageReader(settings.templatePath).canRead()) {
+        KMessageBox::error(this, i18nc("@info", "Choose a readable folder template, or clear the template field to use the built-in folder."));
+        return;
+    }
+    FolderCover::saveSettings(settings);
+}
+
+void FolderCoversSettingsPage::restoreDefaults()
+{
+    loadForm(FolderCover::Settings());
+    Q_EMIT changed();
 }
 
 #include "moc_previewssettingspage.cpp"

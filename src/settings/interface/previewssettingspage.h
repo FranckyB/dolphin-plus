@@ -9,12 +9,16 @@
 
 #include <kiowidgets_export.h>
 
+#include "kitemviews/foldercover.h"
 #include "settings/settingspagebase.h"
 
 class QCheckBox;
 class QSpinBox;
 class QListView;
 class QModelIndex;
+class QComboBox;
+class QLineEdit;
+class QLabel;
 
 /**
  * @brief Allows the configuration of file previews.
@@ -54,6 +58,35 @@ private:
     QSpinBox *m_localFileSizeBox;
     QSpinBox *m_remoteFileSizeBox;
     QCheckBox *m_enableRemoteFolderThumbnail;
+};
+
+class FolderCoversSettingsPage : public SettingsPageBase
+{
+    Q_OBJECT
+
+public:
+    explicit FolderCoversSettingsPage(QWidget *parent = nullptr);
+    void applySettings() override;
+    void restoreDefaults() override;
+
+private:
+    FolderCover::Settings formSettings() const;
+    void loadForm(const FolderCover::Settings &settings);
+    void updatePreview();
+
+    QComboBox *m_coverMode;
+    QLineEdit *m_templatePath;
+    QLineEdit *m_samplePath;
+    QSpinBox *m_contentX;
+    QSpinBox *m_contentY;
+    QSpinBox *m_contentWidth;
+    QSpinBox *m_contentHeight;
+    QSpinBox *m_cornerRadius;
+    QSpinBox *m_subfolderDepth;
+    QCheckBox *m_videoFallback;
+    QCheckBox *m_respectCustomIcons;
+    QWidget *m_coverOptions;
+    QLabel *m_coverPreview;
 };
 
 #endif

@@ -134,6 +134,55 @@ been verified by these offscreen tests.
 
 ## Initial Workflows
 
+### Single-Cover Folder Previews
+
+Enable **Show Previews** in the file view. **Configure Dolphin Plus > Interface >
+Folder Covers** selects Standard Dolphin previews, Single cover (the default),
+or No folder previews. File thumbnails are unaffected. Single covers apply to
+local folders; remote folders keep native previews.
+
+The bundled blue folder template comes from the folder-thumbnail generator's
+`script_files/folder.png`. A custom image can replace it. Content X/Y, width,
+height, and corner radius use a fixed 256 x 256 coordinate system, independent
+of the template resolution or displayed icon size. Images are center-cropped
+to fill the rounded content region. A live preview accepts an optional sample
+image; the sample is not saved. Apply updates open file views; Cancel leaves
+saved settings unchanged.
+
+Readable images are preferred in this order: `fanart`, `landscape`, `poster`,
+then other filenames alphabetically, ignoring case. Supported extensions are
+JPEG, PNG, WebP, BMP, and GIF, subject to installed Qt decoders. Optional video
+fallback uses `ffmpeg` and `ffprobe` from PATH to extract a midpoint frame
+(one second when duration is unavailable). Missing tools or unreadable media
+fall back to the next candidate or the normal folder icon.
+
+Subfolder fallback defaults to one level and can be disabled or set up to four.
+Each folder tries images before videos; a current-folder video precedes a
+subfolder image. Searches skip hidden entries and do not descend through
+symlink directories. Work is bounded to 10,000 entries, 128 subfolders per
+level, and 32 decoding attempts per cover. Each media subprocess has a
+10-second timeout. Generation runs on a bounded worker pool and is cancelled
+when its view no longer needs it.
+
+**Keep existing custom folder icons** is enabled by default: a nonempty `Icon`
+entry in `.directory` takes precedence. Uncheck it to preview folders already
+customized by the Python generator without modifying those files. No covers,
+metadata, or temporary media files are written into browsed folders.
+
+Settings live in `dolphinplusrc` under `FolderCovers`; composed images use the
+private `$XDG_CACHE_HOME/dolphinplus/folder-covers` cache (normally
+`~/.cache/dolphinplus/folder-covers`). It is pruned to 1,024 images and 256 MiB.
+Source path, modification time, size, template pixels, geometry, and output
+size determine cache identity. Selection is rescanned on generation; refresh
+the parent view after editing child media, because child-file changes are not
+watched continuously. Stock Dolphin and its thumbnail cache are unchanged.
+
+`foldercovertest` covers cropping, radius, source priority, cache invalidation,
+corrupt media, real video extraction, custom icons, subfolder fallback,
+cancellation, and preferences. `dolphinmainwindowtest testFolderCovers` checks
+rendered pixels and live settings changes in the native file view. These are
+offscreen tests, not a desktop performance benchmark.
+
 ### Integrated Image Viewer
 
 Normal single-image activation now opens a Dolphin Plus-owned top-level window

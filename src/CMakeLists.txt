@@ -75,6 +75,7 @@ target_sources(dolphinprivate PRIVATE
     kitemviews/kfileitemlisttostring.cpp
     kitemviews/kfileitemmodel.cpp
     kitemviews/kfileitemmodelrolesupdater.cpp
+    kitemviews/foldercover.cpp
     kitemviews/kitemlistcontainer.cpp
     kitemviews/kitemlistcontroller.cpp
     kitemviews/kitemlistgroupheader.cpp
@@ -212,6 +213,12 @@ kconfig_add_kcfg_files(dolphinprivate
 )
 
 generate_export_header(dolphinprivate BASE_NAME dolphin)
+
+qt_add_resources(dolphinprivate foldercover_resources
+    PREFIX "/dolphinplus"
+    BASE "kitemviews"
+    FILES "kitemviews/foldercover.png"
+)
 
 target_link_libraries(
     dolphinprivate PUBLIC

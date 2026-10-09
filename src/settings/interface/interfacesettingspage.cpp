@@ -42,6 +42,10 @@ InterfaceSettingsPage::InterfaceSettingsPage(QWidget *parent)
     tabWidget->addTab(previewsPage, i18nc("@title:tab Previews settings", "Previews"));
     connect(previewsPage, &PreviewsSettingsPage::changed, this, &InterfaceSettingsPage::changed);
 
+    auto *folderCoversPage = new FolderCoversSettingsPage(tabWidget);
+    tabWidget->addTab(folderCoversPage, i18nc("@title:tab", "Folder Covers"));
+    connect(folderCoversPage, &FolderCoversSettingsPage::changed, this, &InterfaceSettingsPage::changed);
+
     // initialize 'Context Menu' tab
     ConfirmationsSettingsPage *confirmationsPage = new ConfirmationsSettingsPage(tabWidget);
     tabWidget->addTab(confirmationsPage, i18nc("@title:tab Confirmations settings", "Confirmations"));
@@ -61,6 +65,7 @@ InterfaceSettingsPage::InterfaceSettingsPage(QWidget *parent)
 
     m_pages.append(foldersTabsPage);
     m_pages.append(previewsPage);
+    m_pages.append(folderCoversPage);
     m_pages.append(confirmationsPage);
 
 #if HAVE_BALOO

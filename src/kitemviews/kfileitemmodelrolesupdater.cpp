@@ -36,7 +36,9 @@
 #include <QPainter>
 #include <QPluginLoader>
 #include <QScopedValueRollback>
+#include <QThreadPool>
 #include <QTimer>
+#include <QtConcurrentRun>
 #include <chrono>
 
 using namespace std::chrono_literals;
@@ -240,7 +242,10 @@ bool KFileItemModelRolesUpdater::enlargeSmallPreviews() const
 
 void KFileItemModelRolesUpdater::setEnabledPlugins(const QStringList &list)
 {
-    if (m_enabledPlugins != list) {
+    const auto coverSettings = FolderCover::loadSettings();
+    if (m_enabledPlugins != list || m_folderCoverSettings != coverSettings) {
+        killHoverSequencePreviewJob();
+        m_folderCoverSettings = coverSettings;
         m_enabledPlugins = list;
         if (m_previewShown) {
             updateAllPreviews();
@@ -350,6 +355,13 @@ void KFileItemModelRolesUpdater::setHoverSequenceState(const QUrl &itemUrl, int 
 
     m_hoverSequenceItem = item;
     m_hoverSequenceIndex = seqIdx;
+
+    if (item.isDir()
+        && (m_folderCoverSettings.mode == FolderCover::Mode::Disabled
+            || (item.isLocalFile() && m_folderCoverSettings.mode == FolderCover::Mode::SingleCover))) {
+        killHoverSequencePreviewJob();
+        return;
+    }
 
     if (!m_previewShown) {
         return;
@@ -573,7 +585,7 @@ void KFileItemModelRolesUpdater::slotGotPreview(const KFileItem &item, const QPi
 
     QHash<QByteArray, QVariant> data = rolesData(item, index);
     data.insert("iconPixmap", transformPreviewPixmap(pixmap));
-    data.insert("supportsSequencing", m_previewJob->handlesSequences());
+    data.insert("supportsSequencing", m_previewJob && m_previewJob->handlesSequences());
 
     setModelData(index, data);
     Q_EMIT previewJobFinished(); // For unit testing
@@ -594,6 +606,7 @@ void KFileItemModelRolesUpdater::slotPreviewFailed(const KFileItem &item)
     if (index >= 0) {
         QHash<QByteArray, QVariant> data;
         data.insert("iconPixmap", QPixmap());
+        data.insert("supportsSequencing", false);
 
         setModelData(index, data);
 
@@ -607,6 +620,40 @@ void KFileItemModelRolesUpdater::slotPreviewJobFinished()
     m_previewJob = nullptr;
 
     if (m_state != PreviewJobRunning) {
+        return;
+    }
+
+    if (!m_pendingFolderCovers.isEmpty()) {
+        const KFileItem item = m_pendingFolderCovers.takeFirst();
+        const auto settings = m_folderCoverSettings;
+        const QSize size = cacheSize() * m_devicePixelRatio;
+        const auto cancel = std::make_shared<std::atomic_bool>(false);
+        m_coverCancellation = cancel;
+        auto *watcher = new QFutureWatcher<QImage>(this);
+        m_coverWatcher = watcher;
+        connect(watcher, &QFutureWatcher<QImage>::finished, this, [this, watcher, cancel, item]() {
+            if (m_coverWatcher != watcher) {
+                watcher->deleteLater();
+                return;
+            }
+            m_coverWatcher = nullptr;
+            const QImage cover = watcher->result();
+            watcher->deleteLater();
+            if (cancel->load() || m_state != PreviewJobRunning) {
+                return;
+            }
+            if (cover.isNull()) {
+                slotPreviewFailed(item);
+            } else {
+                slotGotPreview(item, QPixmap::fromImage(cover));
+            }
+            slotPreviewJobFinished();
+        });
+        static QThreadPool pool;
+        pool.setMaxThreadCount(2);
+        watcher->setFuture(QtConcurrent::run(&pool, [url = item.url(), settings, size, cancel]() {
+            return settings.mode == FolderCover::Mode::Disabled ? QImage() : FolderCover::generate(url, settings, size, cancel);
+        }));
         return;
     }
 
@@ -971,8 +1018,22 @@ void KFileItemModelRolesUpdater::startPreviewJob()
         return;
     }
 
-    const KFileItemList items = m_pendingPreviewItems;
+    KFileItemList items;
+    for (const auto &item : std::as_const(m_pendingPreviewItems)) {
+        if (item.isDir()
+            && (m_folderCoverSettings.mode == FolderCover::Mode::Disabled
+                || (item.isLocalFile() && m_folderCoverSettings.mode == FolderCover::Mode::SingleCover))) {
+            m_pendingFolderCovers.append(item);
+        } else {
+            items.append(item);
+        }
+    }
     m_pendingPreviewItems.clear();
+
+    if (items.isEmpty()) {
+        slotPreviewJobFinished();
+        return;
+    }
 
     KIO::PreviewJob *job = new KIO::PreviewJob(items, cacheSize(), &m_enabledPlugins);
     job->setDevicePixelRatio(m_devicePixelRatio);
@@ -1413,6 +1474,17 @@ void KFileItemModelRolesUpdater::updateAllPreviews()
 
 void KFileItemModelRolesUpdater::killPreviewJob()
 {
+    if (m_coverCancellation) {
+        m_coverCancellation->store(true);
+        m_coverCancellation.reset();
+    }
+    if (m_coverWatcher) {
+        m_coverWatcher->disconnect(this);
+        m_coverWatcher->deleteLater();
+        m_coverWatcher = nullptr;
+    }
+    m_pendingFolderCovers.clear();
+    m_pendingPreviewItems.clear();
     if (m_previewJob) {
         disconnect(m_previewJob, &KIO::PreviewJob::gotPreview, this, &KFileItemModelRolesUpdater::slotGotPreview);
         disconnect(m_previewJob, &KIO::PreviewJob::failed, this, &KFileItemModelRolesUpdater::slotPreviewFailed);

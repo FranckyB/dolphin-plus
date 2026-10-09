@@ -8,6 +8,7 @@
 #define KFILEITEMMODELROLESUPDATER_H
 
 #include "dolphin_export.h"
+#include "foldercover.h"
 #include "kitemviews/kitemmodelbase.h"
 
 #include <list>
@@ -15,6 +16,7 @@
 #include "config-dolphin.h"
 #include <KFileItem>
 
+#include <QFutureWatcher>
 #include <QObject>
 #include <QSet>
 #include <QSize>
@@ -398,6 +400,10 @@ private:
     KFileItemList m_pendingPreviewItems;
 
     KIO::PreviewJob *m_previewJob;
+    FolderCover::Settings m_folderCoverSettings = FolderCover::loadSettings();
+    FolderCover::Cancellation m_coverCancellation;
+    QFutureWatcher<QImage> *m_coverWatcher = nullptr;
+    KFileItemList m_pendingFolderCovers;
 
     // Info about the item that the user currently hovers, and the current sequence
     // index for thumb generation.

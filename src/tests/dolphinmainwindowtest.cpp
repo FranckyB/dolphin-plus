@@ -90,6 +90,7 @@ private Q_SLOTS:
     void testRequestedTabIsActivated_data();
     void testContainsTypeToFind();
     void testContainsTypeToFind_data();
+    void testFolderCovers();
     void testSiblingNavigationCancellation();
     void testSiblingNavigationSplitView();
     void testSiblingNavigationSymlink();
@@ -944,6 +945,65 @@ void DolphinMainWindowTest::testPlacesPanelWidthResistance()
 
     QApplication::processEvents(); // animations disabled via disableAnimations() in initTestCase()
     QCOMPARE(placesPanel->width(), initialPlacesPanelWidth);
+}
+
+void DolphinMainWindowTest::testFolderCovers()
+{
+    const auto previous = FolderCover::loadSettings();
+    const auto restore = qScopeGuard([previous]() {
+        FolderCover::saveSettings(previous);
+    });
+    FolderCover::Settings settings;
+    settings.respectCustomIcons = false;
+    FolderCover::saveSettings(settings);
+    TestDir directory;
+    directory.createDir(QStringLiteral("cover"));
+    QImage source(300, 200, QImage::Format_RGB32);
+    source.fill(Qt::red);
+    QVERIFY(source.save(directory.filePath(QStringLiteral("cover/fanart.png"))));
+    m_mainWindow->openDirectories({directory.url()}, false);
+    auto *view = m_mainWindow->activeViewContainer()->view();
+    view->setViewMode(DolphinView::IconsView);
+    view->setZoomLevel(12);
+    view->setPreviewsShown(true);
+    view->readSettings();
+    m_mainWindow->resize(960, 640);
+    m_mainWindow->show();
+    QTRY_COMPARE(view->itemsCount(), 1);
+    auto *container = view->findChild<KItemListContainer *>();
+    QVERIFY(container);
+    auto *model = container->controller()->model();
+    const auto cover = [model]() {
+        return model->data(0).value("iconPixmap").value<QPixmap>().toImage();
+    };
+    QTRY_VERIFY(!cover().isNull());
+    QCOMPARE(cover().pixelColor(cover().width() / 2, cover().height() / 2), QColor(Qt::red));
+    const auto rendered = [view]() {
+        const QImage screenshot = view->grab().toImage();
+        int redPixels = 0;
+        for (int row = 0; row < screenshot.height(); ++row) {
+            for (int column = 0; column < screenshot.width(); ++column) {
+                redPixels += screenshot.pixelColor(column, row) == QColor(Qt::red);
+            }
+        }
+        return redPixels;
+    };
+    QTRY_VERIFY(rendered() > 1000);
+    const QString screenshots = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");
+    if (!screenshots.isEmpty()) {
+        QVERIFY(m_mainWindow->grab().save(screenshots + QStringLiteral("/folder-cover-view.png")));
+    }
+    settings.contentRect = QRect(0, 0, 128, 128);
+    settings.radius = 0;
+    FolderCover::saveSettings(settings);
+    view->readSettings();
+    QTRY_COMPARE(cover().pixelColor(5, 5), QColor(Qt::red));
+    settings.mode = FolderCover::Mode::Disabled;
+    FolderCover::saveSettings(settings);
+    view->readSettings();
+    QTRY_VERIFY(cover().isNull());
+    QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("cover/.folder.png"))));
+    QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("cover/.directory"))));
 }
 
 void DolphinMainWindowTest::testContainsTypeToFind_data()
