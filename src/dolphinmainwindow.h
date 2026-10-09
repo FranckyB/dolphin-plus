@@ -307,6 +307,7 @@ private Q_SLOTS:
 
     void createDirectory(const QUrl &parent);
     void createFile();
+    void groupFiles();
 
     /** Shows the error message in a non-modal message box above the active view. */
     void showErrorMessage(const QString &message);

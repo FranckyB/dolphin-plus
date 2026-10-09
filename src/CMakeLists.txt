@@ -290,6 +290,8 @@ target_link_libraries(dolphinpart
 add_library(dolphinstatic STATIC)
 
 target_sources(dolphinstatic PRIVATE
+    archiveextractionjob.cpp
+    archiveextractionjob.h
     dolphinimageviewer.cpp
     dolphinimageviewer.h
     settings/viewer/viewersettingspage.cpp

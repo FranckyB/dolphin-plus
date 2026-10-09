@@ -5,6 +5,7 @@
  */
 
 #include "dolphincontextmenu.h"
+#include "archiveextractionjob.h"
 
 #include "dolphin_contextmenusettings.h"
 #include "dolphin_generalsettings.h"
@@ -310,6 +311,7 @@ void DolphinContextMenu::addItemContextMenu()
     }
 
     insertDefaultItemActions(selectedItemsProps);
+    addAction(m_mainWindow->actionCollection()->action(QStringLiteral("group_files")));
 
     addAdditionalActions(selectedItemsProps);
 
@@ -536,7 +538,13 @@ void DolphinContextMenu::addAdditionalActions(const KFileItemListProperties &pro
     if (props.isLocal() && props.isDirectory() && ContextMenuSettings::showOpenTerminal()) {
         additionalActions << m_mainWindow->actionCollection()->action(QStringLiteral("open_terminal_here"));
     }
-    m_fileItemActions->addActionsTo(this, KFileItemActions::MenuActionSource::All, additionalActions);
+    m_fileItemActions->addActionsTo(
+        this,
+        KFileItemActions::MenuActionSource::All,
+        additionalActions,
+        {QStringLiteral("extractfileitemaction"), QStringLiteral("compressfileitemaction"), QStringLiteral("movetonewfolderitemaction")});
+    addActions(ArchiveExtractionJob::actions(props, this));
+    addActions(ArchiveExtractionJob::compressionActions(props, this));
 
     const DolphinView *view = m_mainWindow->activeViewContainer()->view();
     const QList<QAction *> versionControlActions = view->versionControlActions(m_selectedItems);

@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!DOCTYPE gui SYSTEM "kpartgui.dtd">
-<gui name="dolphinplus" version="50">
+<gui name="dolphinplus" version="51">
     <MenuBar>
         <Menu name="file">
             <Action name="new_menu" />
@@ -25,6 +25,7 @@
             <Action name="edit_copy" />
             <Action name="copy_location" />
             <Action name="edit_paste" />
+            <Action name="group_files" />
             <Separator />
             <Action name="show_filter_bar" />
             <Action name="edit_find" />

@@ -134,6 +134,75 @@ been verified by these offscreen tests.
 
 ## Initial Workflows
 
+### Group Files
+
+**Edit > Group Files** and the selected-item context menu open a folder-name
+dialog, create that folder, and move the selected files and folders into it.
+A single selected folder is supported too. Assign a shortcut to **Group Files**
+in **Configure Keyboard Shortcuts**; no default binding is reserved.
+
+The action uses KDE's native creation dialog and undoable KIO move operation.
+It snapshots the selection when invoked, supports cancellation, and selects
+the resulting folder in the originating view. It is enabled for movable items
+directly in the current writable folder, not mixed-parent search results or
+descendants selected through an expanded folder. Existing-folder validation
+and move errors use native KDE handling. Undo reverses the move; the newly
+created empty folder may remain, as with the native operation.
+
+### Compression Without Extra Windows
+
+The Compress menu retains Ark's ZIP, tar.gz, and custom compression dialog,
+but invokes Ark's compression CLI instead of the plugin's completion callback.
+The plugin normally calls the global `org.freedesktop.FileManager1.ShowItems`
+service after creating an archive. Since Dolphin Plus deliberately does not
+own that service, it can open stock Dolphin. The replacement omits that reveal
+request: the created archive appears through the current folder's normal
+updates. Ark remains responsible for compression and its error dialogs.
+
+The compression regression test creates a real ZIP through the menu action
+and checks that no global file-manager reveal request is made. The main-window
+Group Files test covers mixed files/folders, single-folder grouping, keyboard
+shortcut activation, cancellation, selection, and undo.
+
+### Extract and Trash
+
+For extraction, Dolphin Plus replaces only Ark's **Extract and trash archive** context-menu
+action. **Extract here** and **Extract to** remain Ark actions, and stock
+Dolphin's menu is unchanged. Ark still supplies archive recognition and the
+menu; the replacement uses `bsdtar` from libarchive for extraction because
+Ark's batch CLI exit status does not reliably distinguish extraction errors.
+
+Each selected local archive is processed separately, beside its original
+location, in a private `.dolphinplus-extract-*` staging directory. After a
+successful extraction, one top-level item (file or folder) is moved directly
+beside the archive. Multiple top-level items are kept together in a folder
+named after the archive, stripping compound extensions such as `.tar.gz`.
+Hidden entries count as items. This removes only the staging wrapper, not
+intentional nested directories inside the archive.
+
+Existing destination names are never overwritten or merged: a collision stops
+the operation and reports the staging location. Extraction errors and empty
+archives also stop without trashing the source. Successfully placed output is
+followed by a normal KIO Trash operation, not permanent deletion. A failure
+stops the remaining batch; previously completed archives stay extracted and
+trashed. Changes to an archive's size or modification time during extraction
+prevent it from being trashed.
+
+The native job tracker provides cancellation. Cancelled or failed extractions
+may leave their hidden staging directory for recovery; show hidden files to
+inspect it. Trashing failures retain the successfully extracted output.
+No automatic retry through Ark is made, since that could duplicate partially
+extracted data. Password-protected, multi-volume, or otherwise unsupported
+archives should use Ark's **Extract to** action instead; backend support is
+not identical to Ark's plugin support. Symbolic-link archive inputs are not
+accepted by the replacement action.
+
+`archiveextractiontest` checks actual menu activation, ZIP and tar.gz layouts,
+hidden entries, collisions, cancellation, corrupt and encrypted archives,
+and path-traversal/symlink containment. Run it offscreen with disposable
+HOME/XDG paths and a private D-Bus session. Set TMPDIR to that disposable HOME
+so fixtures and the test Trash are on the same filesystem.
+
 ### Single-Cover Folder Previews
 
 Enable **Show Previews** in the file view. **Configure Dolphin Plus > Interface >

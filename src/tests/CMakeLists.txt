@@ -7,6 +7,8 @@ set( EXECUTABLE_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR} )
 find_package(Qt6Test CONFIG REQUIRED)
 include(ECMAddTests)
 
+ecm_add_test(archiveextractiontest.cpp LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)
+
 ecm_add_test(foldercovertest.cpp LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)
 
 find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session)

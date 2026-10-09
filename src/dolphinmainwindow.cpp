@@ -51,6 +51,7 @@
 #include <KDualAction>
 #include <KFileItemListProperties>
 #include <KIO/CommandLauncherJob>
+#include <KIO/CopyJob>
 #include <KIO/JobUiDelegateFactory>
 #include <KIO/ListJob>
 #include <KIO/OpenFileManagerWindowJob>
@@ -850,6 +851,46 @@ void DolphinMainWindow::createFile()
         m_newFileMenu->setWorkingDirectory(activeViewContainer()->url());
         m_newFileMenu->createFile();
     }
+}
+
+void DolphinMainWindow::groupFiles()
+{
+    if (!actionCollection()->action(QStringLiteral("group_files"))->isEnabled()) {
+        return;
+    }
+    QPointer<DolphinView> view = m_activeViewContainer->view();
+    const QUrl parentUrl = view->url();
+    const QList<QUrl> urls = view->selectedItems().urlList();
+    if (urls.isEmpty() || findChild<KNewFileMenu *>(QStringLiteral("group_files_menu"))) {
+        return;
+    }
+    auto *menu = new KNewFileMenu(this);
+    menu->setObjectName(QStringLiteral("group_files_menu"));
+    menu->setWindowTitle(i18nc("@title:window", "Group Files"));
+    menu->setWorkingDirectory(parentUrl);
+    menu->setSelectDirWhenAlreadyExist(false);
+    connect(menu, &KNewFileMenu::directoryCreationRejected, menu, &QObject::deleteLater);
+    connect(menu, &QObject::destroyed, this, &DolphinMainWindow::updateFileAndEditActions);
+    connect(menu, &KNewFileMenu::directoryCreated, this, [this, menu, urls, view, parentUrl](const QUrl &destination) {
+        if (std::any_of(urls.cbegin(), urls.cend(), [&destination](const QUrl &source) {
+                return source.matches(destination, QUrl::StripTrailingSlash) || source.isParentOf(destination);
+            })) {
+            showErrorMessage(i18n("The new folder cannot be inside one of the selected folders. No selected items were moved."));
+            menu->deleteLater();
+            return;
+        }
+        auto *job = KIO::move(urls, destination);
+        KJobWidgets::setWindow(job, this);
+        KIO::FileUndoManager::self()->recordCopyJob(job);
+        connect(job, &KJob::result, job, [view, parentUrl, destination](KJob *result) {
+            if (!result->error() && view && view->url().matches(parentUrl, QUrl::StripTrailingSlash)) {
+                view->selectAndRevealUrl(destination);
+            }
+        });
+        menu->deleteLater();
+    });
+    updateFileAndEditActions();
+    menu->createDirectory();
 }
 
 void DolphinMainWindow::quit()
@@ -1954,6 +1995,11 @@ void DolphinMainWindow::setupActions()
                                "action they are removed from their old location.")
                         + cutCopyPastePara);
 
+    QAction *groupFilesAction = actionCollection()->addAction(QStringLiteral("group_files"));
+    groupFilesAction->setText(i18nc("@action:inmenu", "Group Files"));
+    groupFilesAction->setIcon(QIcon::fromTheme(QStringLiteral("folder-new")));
+    connect(groupFilesAction, &QAction::triggered, this, &DolphinMainWindow::groupFiles);
+
     QAction *copyToOtherViewAction = actionCollection()->addAction(QStringLiteral("copy_to_inactive_split_view"));
     copyToOtherViewAction->setText(i18nc("@action:inmenu", "Copy to Other View"));
     m_actionTextHelper->registerTextWhenNothingIsSelected(copyToOtherViewAction, i18nc("@action:inmenu", "Copy to Other View…"));
@@ -2704,6 +2750,14 @@ void DolphinMainWindow::updateFileAndEditActions()
     const KFileItemList list = m_activeViewContainer->view()->selectedItems();
     const KActionCollection *col = actionCollection();
     KFileItemListProperties capabilitiesSource(list);
+
+    const auto *view = m_activeViewContainer->view();
+    const bool canGroup = !list.isEmpty() && capabilitiesSource.supportsMoving() && view->rootItem().isWritable()
+        && KProtocolManager::supportsMakeDir(view->url()) && !findChild<KNewFileMenu *>(QStringLiteral("group_files_menu"))
+        && std::all_of(list.cbegin(), list.cend(), [view](const KFileItem &item) {
+               return item.url().adjusted(QUrl::RemoveFilename).matches(view->url(), QUrl::StripTrailingSlash);
+           });
+    col->action(QStringLiteral("group_files"))->setEnabled(canGroup);
 
     QAction *renameAction = col->action(KStandardAction::name(KStandardAction::RenameFile));
     QAction *moveToTrashAction = col->action(KStandardAction::name(KStandardAction::MoveToTrash));
