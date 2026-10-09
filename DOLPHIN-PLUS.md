@@ -13,7 +13,34 @@
 
 ## Build and Stage
 
-Run from the repository root in a host terminal:
+The recommended per-user build and desktop registration workflow is:
+
+```sh
+./build-and-install.sh --test
+```
+
+Omit `--test` for a build/install with launcher validation and a version smoke
+check only. Use `--jobs N` to control compilation parallelism or `--dry-run` to
+inspect commands without modifying files. The script locates its checkout from
+its own path, automatically forwards Flatpak execution to host Bash, and refuses
+root execution, conflicting launcher paths, concurrent installer runs, or an
+installation while Dolphin Plus is running. It never closes applications itself.
+Dependency installation is a separate step; see the README requirements.
+
+It uses the existing Debug development preset and staging prefix, registers
+user-local symlinks, and refreshes available desktop caches. Registration honors
+`XDG_DATA_HOME`; the executable link is under `~/.local/bin`. Default applications
+and PATH are untouched. Repeated runs reuse links pointing to this same checkout.
+Failed builds/tests stop before installation; failures during installation or
+desktop registration are reported but do not provide transactional rollback.
+
+With `--test`, focused cover, archive, grouping, and thumbnail tests use disposable
+HOME/XDG/TMP paths and private D-Bus sessions. Coexistence runs before and after
+staging when stock Dolphin is available. This is not the full upstream test suite.
+Test artifacts remain in ignored `build-dolphin-plus/installer-test.*` folders.
+Keep Dolphin Plus closed until the installer finishes.
+
+For manual builds, run from the repository root in a host terminal:
 
 ```sh
 cmake --preset dolphin-plus-dev
@@ -37,8 +64,28 @@ missing dependencies; package installation is a separate, explicit operation.
 The preset installs only into `build-dolphin-plus/stage/`, not system directories.
 Configure the intended prefix before building; do not override it with
 `cmake --install --prefix`, because the launcher embeds the configured executable
-path. No system package, default file association, or desktop launcher outside
-this repository has been installed.
+path. No system package or default file association has been changed.
+
+### Desktop Registration on This Machine
+
+Dolphin Plus is registered for the current user in the application menu and as
+an available handler for folders. Stock Dolphin remains the default. These
+user-local symlinks point into this repository's staged build:
+
+- `~/.local/share/applications/local.dolphinplus.desktop`
+- `~/.local/share/icons/hicolor/scalable/apps/local.dolphinplus.svg`
+- `~/.local/bin/dolphin-plus`
+
+Search for **Dolphin Plus** in the application launcher, or run
+`~/.local/bin/dolphin-plus` from a host terminal. The current desktop PATH does
+not include `~/.local/bin`; no shell startup files were changed. The registered
+desktop entry uses an absolute executable path and does not need that PATH entry.
+
+Future installs to the staging directory update this desktop application too.
+Keep the project and its staging directory in place and accessible. Close
+Dolphin Plus before replacing its executable or libraries. This registration
+is per-user, not a standalone system package. Desktop-file validation, KDE cache
+refresh, folder-handler discovery, and the launcher's `--version` check passed.
 
 Launch from a host terminal:
 
@@ -84,7 +131,7 @@ The current staged application has:
 - Private `libdolphinplusprivate` and `libdolphinplusvcs` libraries under
    `lib/dolphinplus/`, loaded through relative runtime paths.
 - No registration or queueing for `org.freedesktop.FileManager1`, no default-file-
-   manager daemon, no MIME association changes, and no KDE telemetry submission.
+   manager daemon, no default MIME association changes, and no KDE telemetry submission.
 
 The install manifest has seven files: executable, launcher, icon, and two private
 libraries with their major-version symlinks. Upstream SDK files, settings modules,
@@ -92,8 +139,8 @@ migration helpers, service-menu installers, item-action plugins, manuals, and
 translation catalogs are not installed over their stock equivalents. Standard
 KDE plugins and available upstream translations/manuals are reused from the host;
 without those optional host components, corresponding integrations may be absent
-or untranslated. Native packaging and a menu launcher installation remain separate
-follow-up work.
+or untranslated. Native packaging remains separate follow-up work; the user-local
+menu launcher registration above is already active on this machine.
 
 Places, trash, KIO workers, KDE-wide preferences, service menus, thumbnailers,
 tags, ratings, and custom folder icons remain intentionally shared. Changing

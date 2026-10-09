@@ -7,6 +7,41 @@ See [Dolphin Plus development](DOLPHIN-PLUS.md) for build, launch, and verificat
 instructions. Native sibling navigation and an integrated image viewer are
 implemented; grouping and scripting remain planned work.
 
+## Build and Install
+
+From a checkout on Linux, run:
+
+```sh
+./build-and-install.sh
+```
+
+This builds the current source and registers **Dolphin Plus** in your application
+launcher. Run the same command after updating the source. Close Dolphin Plus
+first; stock Dolphin can stay open and remains the default file manager.
+The script automatically uses host tools from Flatpak VS Code terminals.
+
+```sh
+./build-and-install.sh --test          # Also run focused isolated tests
+./build-and-install.sh --jobs 2        # Limit parallel compilation (default: 4)
+./build-and-install.sh --dry-run       # Inspect commands without making changes
+```
+
+Install your distribution's Dolphin/Qt 6/KDE Frameworks development dependencies
+first, including a C++ compiler, CMake, Ninja, Extra CMake Modules, and the
+`desktop-file-utils` tools. CMake checks the required library versions and reports
+missing packages. The script also needs Bash, `pgrep`, and `flock` (typically
+provided by procps/procps-ng and util-linux). `--test` additionally requires Ark,
+`bsdtar` from libarchive, and `dbus-run-session`; the coexistence check runs when
+stock Dolphin is installed. Gwenview supplies the image viewer, and FFmpeg enables
+video folder covers.
+
+Do not run the installer as root. It builds into `build-dolphin-plus`, stages
+there, and creates user-local desktop/icon/executable links. Keep the checkout
+and its build directory in place: this is a development install, not a standalone
+package. Existing unrelated launcher files are never overwritten. The script
+does not change default applications, shell startup files, or system packages.
+See [development notes](DOLPHIN-PLUS.md) for manual build steps and limitations.
+
 ## Tabs and Type-to-Find
 
 Opening a new tab, including middle-clicking a folder, switches to that tab.
