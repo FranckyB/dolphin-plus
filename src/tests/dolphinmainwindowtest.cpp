@@ -1639,13 +1639,16 @@ void DolphinMainWindowTest::testImageViewerReturn()
 void DolphinMainWindowTest::testImageViewerSiblingReturn_data()
 {
     QTest::addColumn<bool>("roundTrip");
-    QTest::newRow("sibling-folder") << false;
-    QTest::newRow("original-folder-filtered-image") << true;
+    QTest::addColumn<bool>("trashLast");
+    QTest::newRow("sibling-folder") << false << false;
+    QTest::newRow("original-folder-filtered-image") << true << false;
+    QTest::newRow("trash-last-image-in-sibling-folder") << false << true;
 }
 
 void DolphinMainWindowTest::testImageViewerSiblingReturn()
 {
     QFETCH(bool, roundTrip);
+    QFETCH(bool, trashLast);
     if (!DolphinImageViewer::supportsMimeType(QStringLiteral("image/png"))) {
         QSKIP("Gwenview's image KPart is not installed.");
     }
@@ -1692,14 +1695,20 @@ void DolphinMainWindowTest::testImageViewerSiblingReturn()
     m_mainWindow->m_tabWidget->openNewActivatedTab(directory.url());
     viewer->activateWindow();
     QTRY_VERIFY(viewer->isActiveWindow());
-    QTest::keyClick(viewer, Qt::Key_Return);
+    QTest::keyClick(viewer, trashLast ? Qt::Key_Delete : Qt::Key_Return);
     QTRY_VERIFY(viewer.isNull());
     QCOMPARE(m_mainWindow->m_tabWidget->currentIndex(), 0);
     QCOMPARE(m_mainWindow->activeViewContainer(), origin);
     QCOMPARE(origin->url(), expectedFolder);
-    QTRY_COMPARE(view->selectedItems().urlList(), QList<QUrl>{expectedImage});
-    const auto *selection = view->m_container->controller()->selectionManager();
-    QCOMPARE(view->m_model->fileItem(selection->currentItem()).url(), expectedImage);
+    if (trashLast) {
+        QTRY_COMPARE(view->itemsCount(), 0);
+        QVERIFY(view->selectedItems().isEmpty());
+        QVERIFY(!QFileInfo::exists(expectedImage.toLocalFile()));
+    } else {
+        QTRY_COMPARE(view->selectedItems().urlList(), QList<QUrl>{expectedImage});
+        const auto *selection = view->m_container->controller()->selectionManager();
+        QCOMPARE(view->m_model->fileItem(selection->currentItem()).url(), expectedImage);
+    }
     QVERIFY(view->nameFilter().isEmpty());
     QCOMPARE(secondary->url(), directory.url());
     QVERIFY(secondary->view()->selectedItems().isEmpty());

@@ -5,6 +5,8 @@
 #include <KActionCollection>
 #include <KConfigGroup>
 #include <KFileItem>
+#include <KIO/CopyJob>
+#include <KIO/FileUndoManager>
 #include <KIO/Global>
 #include <KIO/ListJob>
 #include <KLocalizedString>
@@ -134,6 +136,7 @@ DolphinImageViewer::DolphinImageViewer(QWidget *parent)
         navigateSibling(true, false);
     });
     connect(m_actions->action(QStringLiteral("viewer_close")), &QAction::triggered, this, &QWidget::close);
+    connect(m_actions->action(QStringLiteral("viewer_trash")), &QAction::triggered, this, &DolphinImageViewer::trashCurrentImage);
     connect(m_actions->action(QStringLiteral("viewer_fullscreen")), &QAction::triggered, this, [this]() {
         isFullScreen() ? showNormal() : showFullScreen();
     });
@@ -197,6 +200,7 @@ KActionCollection *DolphinImageViewer::createActionCollection(QObject *parent)
     add(QStringLiteral("viewer_last"), i18nc("@action", "Last Image"), QStringLiteral("go-last"), {QKeySequence(Qt::Key_End)});
     add(QStringLiteral("viewer_previous_sibling"), i18nc("@action", "Previous Sibling Folder"), QStringLiteral("go-previous"), {});
     add(QStringLiteral("viewer_next_sibling"), i18nc("@action", "Next Sibling Folder"), QStringLiteral("go-next"), {});
+    add(QStringLiteral("viewer_trash"), i18nc("@action", "Move to Trash"), QStringLiteral("user-trash"), {QKeySequence(Qt::Key_Delete)})->setAutoRepeat(false);
     add(QStringLiteral("viewer_close"),
         i18nc("@action", "Close Viewer and Select Image"),
         QStringLiteral("window-close"),
@@ -404,7 +408,7 @@ bool DolphinImageViewer::supportsMimeType(const QString &mimeType)
 bool DolphinImageViewer::setImages(const QList<QUrl> &images, const QUrl &current, const QUrl &directory)
 {
     const qsizetype index = images.indexOf(current);
-    if (!m_part || index < 0) {
+    if (!m_part || index < 0 || m_trashJob) {
         return false;
     }
     cancelSiblingNavigation();
@@ -438,7 +442,7 @@ QString DolphinImageViewer::errorString() const
 
 void DolphinImageViewer::navigate(int offset)
 {
-    if (m_siblingJob || m_images.isEmpty()) {
+    if (m_siblingJob || m_trashJob || m_images.isEmpty()) {
         return;
     }
     const qsizetype target = m_index + offset;
@@ -451,8 +455,42 @@ void DolphinImageViewer::navigate(int offset)
     }
 }
 
+void DolphinImageViewer::trashCurrentImage()
+{
+    if (m_trashJob || m_siblingJob || currentUrl().isEmpty()) {
+        return;
+    }
+    const QUrl url = currentUrl();
+    m_navigationMessage->hide();
+    auto *job = KIO::trash({url}, KIO::HideProgressInfo);
+    job->setUiDelegate(nullptr);
+    m_trashJob = job;
+    KIO::FileUndoManager::self()->recordCopyJob(job);
+    updateNavigationActions();
+    connect(job, &KJob::result, this, [this, url](KJob *result) {
+        m_trashJob = nullptr;
+        if (result->error()) {
+            showNavigationMessage(i18nc("@info", "Could not move %1 to Trash: %2", url.fileName(), result->errorString()), true);
+            return;
+        }
+        m_images.removeAll(url);
+        m_index = qMin(m_index, m_images.size() - 1);
+        m_wheelDelta = 0;
+        updateNavigationActions();
+        if (m_images.isEmpty()) {
+            m_part->closeUrl();
+            close();
+        } else {
+            openCurrentImage();
+        }
+    });
+}
+
 void DolphinImageViewer::jumpToBoundary(bool last)
 {
+    if (m_trashJob) {
+        return;
+    }
     cancelSiblingNavigation();
     if (!m_images.isEmpty()) {
         m_index = last ? m_images.size() - 1 : 0;
@@ -478,14 +516,16 @@ void DolphinImageViewer::updateNavigationActions()
     if (!m_actions) {
         return;
     }
-    const bool ready = !m_images.isEmpty() && !m_siblingJob;
+    const bool ready = !m_images.isEmpty() && !m_siblingJob && !m_trashJob;
     m_actions->action(QStringLiteral("viewer_previous"))->setEnabled(ready);
     m_actions->action(QStringLiteral("viewer_next"))->setEnabled(ready);
-    m_actions->action(QStringLiteral("viewer_first"))->setEnabled(!m_images.isEmpty());
-    m_actions->action(QStringLiteral("viewer_last"))->setEnabled(!m_images.isEmpty());
+    m_actions->action(QStringLiteral("viewer_first"))->setEnabled(!m_images.isEmpty() && !m_trashJob);
+    m_actions->action(QStringLiteral("viewer_last"))->setEnabled(!m_images.isEmpty() && !m_trashJob);
+    m_actions->action(QStringLiteral("viewer_trash"))->setEnabled(ready);
+    m_actions->action(QStringLiteral("viewer_close"))->setEnabled(!m_trashJob);
     m_actions->action(QStringLiteral("viewer_previous_sibling"))->setEnabled(ready && m_siblingNavigationEnabled);
     m_actions->action(QStringLiteral("viewer_next_sibling"))->setEnabled(ready && m_siblingNavigationEnabled);
-    if (m_siblingJob) {
+    if (m_siblingJob || m_trashJob) {
         setCursor(Qt::BusyCursor);
     } else {
         unsetCursor();
@@ -503,7 +543,7 @@ void DolphinImageViewer::showNavigationMessage(const QString &text, bool error)
 
 void DolphinImageViewer::navigateSibling(bool next, bool selectLast)
 {
-    if (!m_siblingNavigationEnabled || m_siblingJob) {
+    if (!m_siblingNavigationEnabled || m_siblingJob || m_trashJob) {
         return;
     }
     m_navigationMessage->hide();
@@ -732,6 +772,7 @@ bool DolphinImageViewer::eventFilter(QObject *watched, QEvent *event)
             menu.addAction(m_actions->action(name));
         }
         menu.addSeparator();
+        menu.addAction(m_actions->action(QStringLiteral("viewer_trash")));
         for (const QString &name : {QStringLiteral("file_save_as"), QStringLiteral("file_show_properties")}) {
             if (auto *action = m_part->actionCollection()->action(name)) {
                 menu.addAction(action);
@@ -769,6 +810,10 @@ bool DolphinImageViewer::eventFilter(QObject *watched, QEvent *event)
 
 void DolphinImageViewer::closeEvent(QCloseEvent *event)
 {
+    if (m_trashJob) {
+        event->ignore();
+        return;
+    }
     restoreCursor();
     cancelSiblingNavigation();
     Q_EMIT returnToFileRequested(currentUrl(), m_directory);

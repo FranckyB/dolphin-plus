@@ -835,7 +835,13 @@ void DolphinViewContainer::slotItemActivated(const KFileItem &item)
                     if (m_view->url() != originUrl) {
                         return;
                     }
-                    if (imageUrl.isLocalFile() && !QFileInfo::exists(imageUrl.toLocalFile())) {
+                    if (imageUrl.isEmpty()) {
+                        if (directory.isLocalFile() && directory != originUrl.adjusted(QUrl::StripTrailingSlash)) {
+                            setUrl(directory);
+                            m_filterBar->clear();
+                            setNameFilter({});
+                        }
+                    } else if (imageUrl.isLocalFile() && !QFileInfo::exists(imageUrl.toLocalFile())) {
                         showMessage(i18nc("@info:status", "The viewed image is no longer available."), KMessageWidget::Information);
                     } else if (directory.isLocalFile() && directory != originUrl.adjusted(QUrl::StripTrailingSlash)) {
                         setUrl(directory);

@@ -394,6 +394,15 @@ A pane reuses its viewer when another image is activated. Manual location change
 cancel that session, and pane/tab destruction also destroys its viewer. Deleted
 local files do not replace the selection or navigate the pane.
 
+Delete or **Move to Trash** in the context menu sends the current image to Trash
+without confirmation. The configurable `viewer_trash` action disables key repeat
+and records the operation in Dolphin Plus's undo history. Navigation and closing
+are blocked while the job is pending. Only success removes the image from the
+snapshot: the next image is shown, or the previous image if the deleted image was
+last. Trashing the final image closes the viewer and returns to its folder without
+selecting a missing file. Failures keep the image selected and show a nonmodal
+error; there is no permanent-delete fallback.
+
 Supported formats follow the plugin metadata and installed image decoders.
 OpenEXR (`image/x-exr`) additionally accepts the installed Qt EXR decoder even
 when absent from the plugin metadata. This shared check covers opening, the

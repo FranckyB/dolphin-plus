@@ -15,6 +15,7 @@ class ReadOnlyPart;
 
 namespace KIO
 {
+class CopyJob;
 class ListJob;
 }
 
@@ -62,6 +63,7 @@ private:
     void setZoomMode(ZoomMode mode);
     void findZoomController();
     void navigate(int offset);
+    void trashCurrentImage();
     void jumpToBoundary(bool last);
     void navigateSibling(bool next, bool selectLast);
     void findSiblingImages(bool selectLast);
@@ -83,6 +85,7 @@ private:
     KActionCollection *m_actions = nullptr;
     KMessageWidget *m_navigationMessage = nullptr;
     QPointer<KIO::ListJob> m_siblingJob;
+    QPointer<KIO::CopyJob> m_trashJob;
     QList<QUrl> m_siblingFolders;
     QUrl m_directory;
     bool m_siblingNavigationEnabled = false;

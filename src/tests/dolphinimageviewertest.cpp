@@ -4,6 +4,7 @@
 
 #include <KActionCollection>
 #include <KConfigGroup>
+#include <KIO/FileUndoManager>
 #include <KIO/ListJob>
 #include <KMessageWidget>
 #include <KParts/ReadOnlyPart>
@@ -52,6 +53,102 @@ private Q_SLOTS:
         KConfigGroup shortcuts(KSharedConfig::openConfig(QStringLiteral("dolphinplusrc")), QStringLiteral("ImageViewer Shortcuts"));
         shortcuts.deleteGroup();
         shortcuts.sync();
+    }
+
+    void testTrashImage()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        const QUrl first = QUrl::fromLocalFile(directory.filePath(QStringLiteral("first.png")));
+        const QUrl middle = QUrl::fromLocalFile(directory.filePath(QStringLiteral("middle.png")));
+        const QUrl last = QUrl::fromLocalFile(directory.filePath(QStringLiteral("last.png")));
+        for (const QUrl &url : {first, middle, last}) {
+            QVERIFY(image.save(url.toLocalFile()));
+        }
+        const QUrl folder = QUrl::fromLocalFile(directory.path());
+        DolphinImageViewer viewer;
+        viewer.setAttribute(Qt::WA_DeleteOnClose, false);
+        QVERIFY(viewer.setImages({first, middle, last}, middle, folder));
+        viewer.show();
+        QSignalSpy returned(&viewer, &DolphinImageViewer::returnToFileRequested);
+        QSignalSpy recorded(KIO::FileUndoManager::self(), &KIO::FileUndoManager::jobRecordingFinished);
+        auto *trash = viewer.actionCollection()->action(QStringLiteral("viewer_trash"));
+        auto *next = viewer.actionCollection()->action(QStringLiteral("viewer_next"));
+        auto *previous = viewer.actionCollection()->action(QStringLiteral("viewer_previous"));
+        QCOMPARE(trash->shortcut(), QKeySequence(Qt::Key_Delete));
+        QVERIFY(!trash->autoRepeat());
+        viewer.activateWindow();
+        QTRY_VERIFY(viewer.isActiveWindow());
+        QTest::keyClick(&viewer, Qt::Key_Delete);
+        QVERIFY(!trash->isEnabled());
+        QVERIFY(!next->isEnabled());
+        QVERIFY(!previous->isEnabled());
+        QVERIFY(!viewer.close());
+        QVERIFY(!viewer.setImages({first}, first, folder));
+        trash->trigger();
+        next->trigger();
+        QTRY_COMPARE(viewer.currentUrl(), last);
+        QVERIFY(!QFileInfo::exists(middle.toLocalFile()));
+        QVERIFY(QFileInfo::exists(first.toLocalFile()));
+        QVERIFY(QFileInfo::exists(last.toLocalFile()));
+        QTRY_COMPARE(recorded.count(), 1);
+        const QString trashFiles = qEnvironmentVariable("XDG_DATA_HOME", QDir::homePath() + QStringLiteral("/.local/share")) + QStringLiteral("/Trash/files/");
+        QCOMPARE(QImage(trashFiles + QStringLiteral("middle.png")), image);
+        QVERIFY(trash->isEnabled());
+        previous->trigger();
+        QCOMPARE(viewer.currentUrl(), first);
+        next->trigger();
+        QCOMPARE(viewer.currentUrl(), last);
+        trash->trigger();
+        QTRY_COMPARE(viewer.currentUrl(), first);
+        QVERIFY(!QFileInfo::exists(last.toLocalFile()));
+        QCOMPARE(QImage(trashFiles + QStringLiteral("last.png")), image);
+        QCOMPARE(returned.count(), 0);
+        trash->trigger();
+        QTRY_COMPARE(returned.count(), 1);
+        QVERIFY(viewer.currentUrl().isEmpty());
+        QCOMPARE(returned.first().at(0).toUrl(), QUrl());
+        QCOMPARE(returned.first().at(1).toUrl(), folder);
+        QVERIFY(!viewer.isVisible());
+        QVERIFY(!QFileInfo::exists(first.toLocalFile()));
+        QCOMPARE(QImage(trashFiles + QStringLiteral("first.png")), image);
+        QCOMPARE(recorded.count(), 3);
+        QSignalSpy undone(KIO::FileUndoManager::self(), &KIO::FileUndoManager::undoJobFinished);
+        KIO::FileUndoManager::self()->undo();
+        QTRY_COMPARE(undone.count(), 1);
+        QCOMPARE(QImage(first.toLocalFile()), image);
+    }
+
+    void testTrashFailure()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QUrl url = QUrl::fromLocalFile(directory.filePath(QStringLiteral("missing.png")));
+        QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        QVERIFY(image.save(url.toLocalFile()));
+        DolphinImageViewer viewer;
+        viewer.setAttribute(Qt::WA_DeleteOnClose, false);
+        QVERIFY(viewer.setImages({url}, url, QUrl::fromLocalFile(directory.path())));
+        auto *part = viewer.findChild<KParts::ReadOnlyPart *>();
+        QSignalSpy loaded(part, QOverload<>::of(&KParts::ReadOnlyPart::completed));
+        viewer.show();
+        QTRY_VERIFY(!loaded.isEmpty());
+        QVERIFY(QFile::remove(url.toLocalFile()));
+        QSignalSpy returned(&viewer, &DolphinImageViewer::returnToFileRequested);
+        auto *trash = viewer.actionCollection()->action(QStringLiteral("viewer_trash"));
+        trash->trigger();
+        QTRY_VERIFY(trash->isEnabled());
+        QCOMPARE(viewer.currentUrl(), url);
+        QCOMPARE(returned.count(), 0);
+        QVERIFY(viewer.isVisible());
+        auto *message = viewer.findChild<KMessageWidget *>(QString(), Qt::FindDirectChildrenOnly);
+        QVERIFY(message);
+        QVERIFY(!message->isHidden());
+        QCOMPARE(message->messageType(), KMessageWidget::Error);
+        QVERIFY(message->text().contains(QStringLiteral("missing.png")));
     }
 
     void testExr()
