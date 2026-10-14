@@ -66,12 +66,16 @@
 #include <QDropEvent>
 #include <QGraphicsOpacityEffect>
 #include <QGraphicsSceneDragDropEvent>
+#include <QHeaderView>
 #include <QLabel>
 #include <QMenu>
 #include <QMimeDatabase>
 #include <QPixmapCache>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QSize>
+#include <QStandardItemModel>
+#include <QStyleOptionHeader>
 #include <QTimer>
 #include <QToolTip>
 #include <QVBoxLayout>
@@ -274,8 +278,45 @@ DolphinView::DolphinView(const QUrl &url, QWidget *parent)
     m_twoClicksRenamingTimer->setSingleShot(true);
     connect(m_twoClicksRenamingTimer, &QTimer::timeout, this, &DolphinView::slotTwoClicksRenamingTimerTimeout);
 
-    applyViewProperties();
+    applyViewProperties(true);
+    m_sortBarArea = new QScrollArea(this);
+    m_sortBarArea->setFrameShape(QFrame::NoFrame);
+    m_sortBarArea->setWidgetResizable(true);
+    m_sortBarArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_sortBarArea->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    m_sortBar = new QHeaderView(Qt::Horizontal, m_sortBarArea);
+    m_sortBar->setObjectName(QStringLiteral("dolphin_sort_bar"));
+    m_sortBar->setAccessibleName(i18nc("@title:group", "Sort By"));
+    m_sortBar->setModel(new QStandardItemModel(0, 0, m_sortBar));
+    m_sortBar->setSectionsClickable(true);
+    m_sortBar->setHighlightSections(false);
+    m_sortBar->setSectionResizeMode(QHeaderView::Fixed);
+    m_sortBar->setMinimumSectionSize(0);
+    m_sortBar->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_sortBar->setSortIndicatorShown(true);
+    m_sortBar->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_sortBarArea->setWidget(m_sortBar);
+    connect(m_sortBar, &QHeaderView::sectionClicked, this, [this](int section) {
+        const QByteArray role = m_sortBar->model()->headerData(section, Qt::Horizontal, Qt::UserRole).toByteArray();
+        setActive(true);
+        if (sortRole() == role) {
+            setSortOrder(sortOrder() == Qt::AscendingOrder ? Qt::DescendingOrder : Qt::AscendingOrder);
+        } else {
+            setSortRole(role);
+        }
+        m_container->setFocus();
+    });
+    connect(m_sortBar, &QHeaderView::customContextMenuRequested, this, [this](const QPoint &pos) {
+        showHeaderContextMenu(m_sortBar->viewport()->mapToGlobal(pos), true);
+    });
+    m_sortBarArea->viewport()->installEventFilter(this);
+    connect(m_model, &KFileItemModel::sortRoleChanged, this, &DolphinView::updateSortBar);
+    connect(m_model, &KFileItemModel::sortOrderChanged, this, &DolphinView::updateSortBar);
+    connect(GeneralSettings::self(), &GeneralSettings::configChanged, this, &DolphinView::updateSortBar);
+    connect(this, &DolphinView::modeChanged, this, &DolphinView::updateSortBar);
+    m_topLayout->addWidget(m_sortBarArea);
     m_topLayout->addWidget(m_container);
+    updateSortBar();
 
     connect(controller, &KItemListController::keyboardSearchTextChanged, this, [this](const QString &text) {
         m_view->setKeyboardSearchText(text);
@@ -669,7 +710,11 @@ bool DolphinView::sortHiddenLast() const
 
 void DolphinView::setVisibleRoles(const QList<QByteArray> &roles)
 {
-    const QList<QByteArray> &previousRoles = roles;
+    if (m_mode == DetailsView) {
+        setSharedHeaderRoles(roles);
+        return;
+    }
+    const QList<QByteArray> previousRoles = m_visibleRoles;
 
     ViewProperties props(viewPropertiesUrl());
     props.setVisibleRoles(roles);
@@ -699,6 +744,70 @@ void DolphinView::reload()
     restoreState(restoreStream);
 }
 
+QList<QByteArray> DolphinView::sharedHeaderRoles() const
+{
+    const auto rolesInfo = KFileItemModel::rolesInformation();
+    QList<QByteArray> roles{QByteArrayLiteral("text")};
+    for (const QString &role : GeneralSettings::sortBarRoles()) {
+        if (!roles.contains(role.toLatin1()) && std::any_of(rolesInfo.cbegin(), rolesInfo.cend(), [&role](const auto &info) {
+                return info.role == role.toLatin1();
+            })) {
+            roles.append(role.toLatin1());
+        }
+    }
+    return roles;
+}
+
+void DolphinView::setSharedHeaderRoles(const QList<QByteArray> &roles)
+{
+    QStringList savedRoles;
+    for (const QByteArray &role : roles) {
+        savedRoles.append(QString::fromLatin1(role));
+    }
+    GeneralSettings::setSortBarRoles(savedRoles);
+    GeneralSettings::self()->save();
+    updateSortBar();
+}
+
+void DolphinView::updateSortBar()
+{
+    const auto roles = sharedHeaderRoles();
+    if (m_mode == DetailsView && m_visibleRoles != roles) {
+        const auto previousRoles = m_visibleRoles;
+        m_visibleRoles = roles;
+        m_view->setVisibleRoles(roles);
+        Q_EMIT visibleRolesChanged(m_visibleRoles, previousRoles);
+    }
+    if (!m_sortBar) {
+        return;
+    }
+    auto *model = static_cast<QStandardItemModel *>(m_sortBar->model());
+    model->setColumnCount(roles.size());
+    for (int section = 0; section < roles.size(); ++section) {
+        const QByteArray role = roles.at(section);
+        const QString text = m_model->roleDescription(role);
+        model->setHeaderData(section, Qt::Horizontal, text);
+        model->setHeaderData(section, Qt::Horizontal, role, Qt::UserRole);
+        QStyleOptionHeader option;
+        option.initFrom(m_sortBar);
+        option.text = text;
+        option.sortIndicator = QStyleOptionHeader::SortDown;
+        const QSize sectionSize = m_sortBar->style()->sizeFromContents(QStyle::CT_HeaderSection, &option, QSize(), m_sortBar);
+        m_sortBar->resizeSection(section, sectionSize.width());
+    }
+    m_sortBar->setSortIndicator(roles.indexOf(sortRole()), sortOrder());
+    m_sortBar->setMinimumWidth(m_sortBar->length());
+    m_sortBar->setFixedHeight(m_sortBar->sizeHint().height());
+    updateSortBarGeometry();
+    m_sortBarArea->setVisible(GeneralSettings::showSortBar() && m_mode != DetailsView);
+}
+
+void DolphinView::updateSortBarGeometry()
+{
+    const bool overflow = m_sortBar->length() > m_sortBarArea->maximumViewportSize().width();
+    m_sortBarArea->setFixedHeight(m_sortBar->height() + (overflow ? m_sortBarArea->horizontalScrollBar()->sizeHint().height() : 0));
+}
+
 void DolphinView::readSettings()
 {
     const int oldZoomLevel = m_view->zoomLevel();
@@ -708,6 +817,7 @@ void DolphinView::readSettings()
     updateDefaultZoomLevel();
     m_view->readSettings();
     applyViewProperties();
+    updateSortBar();
 
     m_container->controller()->setAutoActivationEnabled(GeneralSettings::autoExpandFolders());
     m_container->controller()->setPersistentKeyboardSearch(GeneralSettings::keyboardSearchMatchAnywhere());
@@ -868,7 +978,7 @@ void DolphinView::setUrl(const QUrl &url)
     // might be done on the existing items although they get cleared
     // anyhow afterwards by loadDirectory().
     m_model->clear();
-    applyViewProperties();
+    applyViewProperties(true);
     loadDirectory(url);
 
     Q_EMIT urlChanged(url);
@@ -1126,6 +1236,12 @@ void DolphinView::abortTwoClicksRenaming()
 
 bool DolphinView::eventFilter(QObject *watched, QEvent *event)
 {
+    if (m_sortBarArea && watched == m_sortBarArea->viewport()) {
+        if (event->type() == QEvent::Resize) {
+            updateSortBarGeometry();
+        }
+        return QWidget::eventFilter(watched, event);
+    }
     switch (event->type()) {
     case QEvent::PaletteChange:
         updatePalette();
@@ -1352,13 +1468,18 @@ void DolphinView::slotViewContextMenuRequested(const QPointF &pos)
 
 void DolphinView::slotHeaderContextMenuRequested(const QPointF &pos)
 {
+    showHeaderContextMenu(pos, false);
+}
+
+void DolphinView::showHeaderContextMenu(const QPointF &pos, bool sortBar)
+{
     ViewProperties props(viewPropertiesUrl());
 
     QPointer<QMenu> menu = new QMenu(this);
     QMenu *const rawMenu = menu;
 
     KItemListView *view = m_container->controller()->view();
-    const QList<QByteArray> visibleRolesSet = view->visibleRoles();
+    const QList<QByteArray> visibleRolesSet = sharedHeaderRoles();
 
     bool indexingEnabled = false;
 #if HAVE_BALOO
@@ -1401,22 +1522,31 @@ void DolphinView::slotHeaderContextMenuRequested(const QPointF &pos)
 
     rawMenu->addSeparator();
 
-    QActionGroup *widthsGroup = new QActionGroup(rawMenu);
-    const bool autoColumnWidths = props.headerColumnWidths().isEmpty();
+    QAction *toggleSidePaddingAction = nullptr;
+    QAction *autoAdjustWidthsAction = nullptr;
+    QAction *customWidthsAction = nullptr;
+    if (!sortBar) {
+        QActionGroup *widthsGroup = new QActionGroup(rawMenu);
+        const bool autoColumnWidths = view->header()->automaticColumnResizing();
 
-    QAction *toggleSidePaddingAction = rawMenu->addAction(i18nc("@action:inmenu", "Side Padding"));
-    toggleSidePaddingAction->setCheckable(true);
-    toggleSidePaddingAction->setChecked(layoutDirection() == Qt::LeftToRight ? view->header()->leftPadding() > 0 : view->header()->rightPadding() > 0);
+        toggleSidePaddingAction = rawMenu->addAction(i18nc("@action:inmenu", "Side Padding"));
+        toggleSidePaddingAction->setCheckable(true);
+        toggleSidePaddingAction->setChecked(layoutDirection() == Qt::LeftToRight ? view->header()->leftPadding() > 0 : view->header()->rightPadding() > 0);
 
-    QAction *autoAdjustWidthsAction = rawMenu->addAction(i18nc("@action:inmenu", "Automatic Column Widths"));
-    autoAdjustWidthsAction->setCheckable(true);
-    autoAdjustWidthsAction->setChecked(autoColumnWidths);
-    autoAdjustWidthsAction->setActionGroup(widthsGroup);
+        autoAdjustWidthsAction = rawMenu->addAction(i18nc("@action:inmenu", "Automatic Column Widths"));
+        autoAdjustWidthsAction->setCheckable(true);
+        autoAdjustWidthsAction->setChecked(autoColumnWidths);
+        autoAdjustWidthsAction->setActionGroup(widthsGroup);
 
-    QAction *customWidthsAction = rawMenu->addAction(i18nc("@action:inmenu", "Custom Column Widths"));
-    customWidthsAction->setCheckable(true);
-    customWidthsAction->setChecked(!autoColumnWidths);
-    customWidthsAction->setActionGroup(widthsGroup);
+        customWidthsAction = rawMenu->addAction(i18nc("@action:inmenu", "Custom Column Widths"));
+        customWidthsAction->setCheckable(true);
+        customWidthsAction->setChecked(!autoColumnWidths);
+        customWidthsAction->setActionGroup(widthsGroup);
+        rawMenu->addSeparator();
+    }
+
+    QAction *restoreDefaults = rawMenu->addAction(i18nc("@action:inmenu", "Restore Default Fields"));
+    restoreDefaults->setObjectName(QStringLiteral("restore_sort_bar_fields"));
 
     QAction *action = rawMenu->exec(pos.toPoint());
     if (menu && action) {
@@ -1436,6 +1566,8 @@ void DolphinView::slotHeaderContextMenuRequested(const QPointF &pos)
             for (const QByteArray &role : visibleRoles) {
                 columnWidths.append(header->columnWidth(role));
             }
+            props.setViewMode(DetailsView);
+            props.setVisibleRoles(visibleRoles);
             props.setHeaderColumnWidths(columnWidths);
             header->setAutomaticColumnResizing(false);
         } else if (action == toggleSidePaddingAction) {
@@ -1444,29 +1576,36 @@ void DolphinView::slotHeaderContextMenuRequested(const QPointF &pos)
             } else {
                 header->setSidePadding(0, 0);
             }
+        } else if (action == restoreDefaults) {
+            GeneralSettings::setSortBarRoles(GeneralSettings::self()->findItem(QStringLiteral("SortBarRoles"))->getDefault().toStringList());
+            GeneralSettings::self()->save();
+            updateSortBar();
         } else {
             // Show or hide the selected role
             const QByteArray selectedRole = action->data().toByteArray();
 
-            QList<QByteArray> visibleRoles = view->visibleRoles();
+            QList<QByteArray> visibleRoles = sharedHeaderRoles();
             if (action->isChecked()) {
                 visibleRoles.append(selectedRole);
             } else {
                 visibleRoles.removeOne(selectedRole);
             }
 
-            view->setVisibleRoles(visibleRoles);
-            props.setVisibleRoles(visibleRoles);
+            setSharedHeaderRoles(visibleRoles);
 
             QList<int> columnWidths;
-            if (!header->automaticColumnResizing()) {
+            if (!sortBar && !header->automaticColumnResizing()) {
                 const auto visibleRoles = view->visibleRoles();
                 columnWidths.reserve(visibleRoles.count());
                 for (const QByteArray &role : visibleRoles) {
                     columnWidths.append(header->columnWidth(role));
                 }
             }
-            props.setHeaderColumnWidths(columnWidths);
+            if (!sortBar) {
+                props.setViewMode(DetailsView);
+                props.setVisibleRoles(visibleRoles);
+                props.setHeaderColumnWidths(columnWidths);
+            }
         }
     }
 
@@ -1479,7 +1618,7 @@ void DolphinView::slotHeaderColumnWidthChangeFinished(const QByteArray &role, qr
 
     ViewProperties props(viewPropertiesUrl());
     QList<int> columnWidths = props.headerColumnWidths();
-    if (columnWidths.count() != visibleRoles.count()) {
+    if (columnWidths.count() != visibleRoles.count() || props.visibleRoles() != visibleRoles) {
         columnWidths.clear();
         columnWidths.reserve(visibleRoles.count());
         const KItemListHeader *header = m_view->header();
@@ -1493,6 +1632,8 @@ void DolphinView::slotHeaderColumnWidthChangeFinished(const QByteArray &role, qr
     Q_ASSERT(roleIndex >= 0 && roleIndex < columnWidths.count());
     columnWidths[roleIndex] = current;
 
+    props.setViewMode(DetailsView);
+    props.setVisibleRoles(visibleRoles);
     props.setHeaderColumnWidths(columnWidths);
 }
 
@@ -2298,6 +2439,22 @@ void DolphinView::slotVisibleRolesChangedByHeader(const QList<QByteArray> &curre
     Q_UNUSED(previous)
     Q_ASSERT(m_container->controller()->view()->visibleRoles() == current);
 
+    if (m_mode == DetailsView) {
+        setSharedHeaderRoles(current);
+        ViewProperties props(viewPropertiesUrl());
+        props.setViewMode(DetailsView);
+        props.setVisibleRoles(sharedHeaderRoles());
+        QList<int> widths;
+        const auto *header = m_view->header();
+        if (!header->automaticColumnResizing()) {
+            for (const auto &role : sharedHeaderRoles()) {
+                widths.append(header->columnWidth(role));
+            }
+        }
+        props.setHeaderColumnWidths(widths);
+        return;
+    }
+
     const QList<QByteArray> previousVisibleRoles = m_visibleRoles;
 
     m_visibleRoles = current;
@@ -2443,9 +2600,24 @@ void DolphinView::loadDirectory(const QUrl &url, bool reload)
     }
 }
 
-void DolphinView::applyViewProperties()
+void DolphinView::applyViewProperties(bool usePreferredMode)
 {
-    const ViewProperties props(viewPropertiesUrl());
+    ViewProperties props(viewPropertiesUrl());
+    if (usePreferredMode) {
+        switch (GeneralSettings::preferredViewMode()) {
+        case GeneralSettings::EnumPreferredViewMode::Icons:
+            props.setViewMode(IconsView);
+            break;
+        case GeneralSettings::EnumPreferredViewMode::Compact:
+            props.setViewMode(CompactView);
+            break;
+        case GeneralSettings::EnumPreferredViewMode::Details:
+            props.setViewMode(DetailsView);
+            break;
+        default:
+            break;
+        }
+    }
     applyViewProperties(props);
 }
 
@@ -2518,7 +2690,7 @@ void DolphinView::applyViewProperties(const ViewProperties &props)
         Q_EMIT sortHiddenLastChanged(sortHiddenLast);
     }
 
-    const QList<QByteArray> visibleRoles = props.visibleRoles();
+    const QList<QByteArray> visibleRoles = m_mode == DetailsView ? sharedHeaderRoles() : props.visibleRoles();
     if (visibleRoles != m_visibleRoles) {
         const QList<QByteArray> previousVisibleRoles = m_visibleRoles;
         m_visibleRoles = visibleRoles;
@@ -2563,7 +2735,7 @@ void DolphinView::applyViewProperties(const ViewProperties &props)
         KItemListHeader *header = itemListView->header();
         const QList<int> headerColumnWidths = props.headerColumnWidths();
         const int rolesCount = m_visibleRoles.count();
-        if (headerColumnWidths.count() == rolesCount) {
+        if (headerColumnWidths.count() == rolesCount && props.visibleRoles() == m_visibleRoles) {
             header->setAutomaticColumnResizing(false);
 
             QHash<QByteArray, qreal> columnWidths;
@@ -2615,7 +2787,7 @@ void DolphinView::applyDynamicView()
      * - the current view mode is already Icon View
      * - dynamic view has previously changed the view mode
      */
-    if (!GeneralSettings::dynamicView() || m_mode == IconsView) {
+    if (!GeneralSettings::dynamicView() || m_mode == IconsView || GeneralSettings::preferredViewMode() != GeneralSettings::EnumPreferredViewMode::LastUsed) {
         return;
     }
 

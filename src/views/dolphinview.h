@@ -28,6 +28,8 @@
 
 using CommandType = KIO::FileUndoManager::CommandType;
 class QVBoxLayout;
+class QHeaderView;
+class QScrollArea;
 class DolphinItemListView;
 class KFileItemModel;
 class KItemListContainer;
@@ -244,6 +246,7 @@ public:
 
     /** Returns the additional information which should be shown for the items. */
     QList<QByteArray> visibleRoles() const;
+    QList<QByteArray> sharedHeaderRoles() const;
 
     /**
      * Returns the preferred sort order for a given role, taking into account
@@ -937,6 +940,10 @@ private Q_SLOTS:
     void onDirectoryLoadingCompletedAfterJob();
 
 private:
+    void setSharedHeaderRoles(const QList<QByteArray> &roles);
+    void updateSortBar();
+    void updateSortBarGeometry();
+    void showHeaderContextMenu(const QPointF &pos, bool sortBar);
     void loadDirectory(const QUrl &url, bool reload = false);
 
     /**
@@ -945,7 +952,7 @@ private:
      * .directory file either in the current directory, or in the
      * share/apps/dolphin/view_properties/ subfolder of the user's .kde folder.
      */
-    void applyViewProperties();
+    void applyViewProperties(bool usePreferredMode = false);
 
     /**
      * Applies the given view properties to the DolphinView.
@@ -1045,6 +1052,8 @@ private:
     QPointer<KIO::StatJob> m_statJobForStatusBarText;
 
     QVBoxLayout *m_topLayout;
+    QHeaderView *m_sortBar = nullptr;
+    QScrollArea *m_sortBarArea = nullptr;
 
     KFileItemModel *m_model;
     DolphinItemListView *m_view;

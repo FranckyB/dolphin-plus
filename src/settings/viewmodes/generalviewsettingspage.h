@@ -47,11 +47,13 @@ private:
     QCheckBox *m_showToolTips = nullptr;
 #endif
     QCheckBox *m_showSelectionToggle = nullptr;
+    QCheckBox *m_showSortBar = nullptr;
     QCheckBox *m_renameInline = nullptr;
     QCheckBox *m_openArchivesAsFolder = nullptr;
     QCheckBox *m_autoExpandFolders = nullptr;
     QCheckBox *m_hideXtrashFiles = nullptr;
     QCheckBox *m_dynamicView = nullptr;
+    QComboBox *m_preferredViewMode = nullptr;
     QComboBox *m_doubleClickViewComboBox = nullptr;
     QLineEdit *m_doubleClickViewCustomAction = nullptr;
     QLabel *m_doubleClickViewCustomActionInfo = nullptr;

@@ -91,6 +91,16 @@
             <label>Should the view properties be used for all folders</label>
             <default>true</default>
         </entry>
+        <entry name="PreferredViewMode" type="Enum">
+            <choices>
+                <choice name="LastUsed" />
+                <choice name="Icons" />
+                <choice name="Compact" />
+                <choice name="Details" />
+            </choices>
+            <label>Preferred view when opening a folder, tab, or window</label>
+            <default code="true">EnumPreferredViewMode::LastUsed</default>
+        </entry>
         <entry name="BrowseThroughArchives" type="Bool">
             <label>Browse through archives</label>
             <default>false</default>
@@ -110,6 +120,14 @@
         <entry name="RenameInline" type="Bool">
             <label>Rename single items inline</label>
             <default>true</default>
+        </entry>
+        <entry name="ShowSortBar" type="Bool">
+            <label>Show sorting controls in Icons and Compact views</label>
+            <default>true</default>
+        </entry>
+        <entry name="SortBarRoles" type="StringList">
+            <label>Header fields shared by Icons, Compact, and Details views</label>
+            <default>text,size,modificationtime,type</default>
         </entry>
         <entry name="ShowSelectionToggle" type="Bool">
             <label>Show selection toggle</label>

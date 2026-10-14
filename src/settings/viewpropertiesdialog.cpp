@@ -61,6 +61,9 @@ ViewPropertiesDialog::ViewPropertiesDialog(DolphinView *dolphinView)
     const QUrl &url = dolphinView->url();
     m_viewProps = new ViewProperties(url);
     m_viewProps->setAutoSaveEnabled(false);
+    m_viewProps->setViewMode(DolphinView::DetailsView);
+    m_viewProps->setVisibleRoles(dolphinView->sharedHeaderRoles());
+    m_viewProps->setViewMode(dolphinView->viewMode());
 
     auto layout = new QFormLayout(this);
     // Otherwise the dialog won't resize when we collapse the KCollapsibleGroupBox.

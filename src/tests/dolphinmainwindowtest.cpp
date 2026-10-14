@@ -17,11 +17,14 @@
 #include "kitemviews/kfileitemmodelrolesupdater.h"
 #include "kitemviews/kitemlistcontainer.h"
 #include "kitemviews/kitemlistcontroller.h"
+#include "kitemviews/kitemlistheader.h"
 #include "kitemviews/kitemlistselectionmanager.h"
 #include "kitemviews/kitemlistwidget.h"
 #include "kitemviews/kstandarditemlistwidget.h"
 #include "settings/interface/folderstabssettingspage.h"
+#include "settings/viewmodes/generalviewsettingspage.h"
 #include "settings/viewmodes/viewmodesettings.h"
+#include "settings/viewpropertiesdialog.h"
 #include "testdir.h"
 #include "views/dolphinitemlistview.h"
 #include "views/viewproperties.h"
@@ -37,19 +40,26 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QComboBox>
 #include <QDomDocument>
 #include <QFileSystemWatcher>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QHeaderView>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QMenu>
 #include <QPixmap>
 #include <QScopeGuard>
 #include <QScopedPointer>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
+#include <QTimer>
 #include <QToolButton>
 
 #include "testhelpers.h"
@@ -92,6 +102,13 @@ private Q_SLOTS:
     void testContainsTypeToFind();
     void testContainsTypeToFind_data();
     void testFolderCovers();
+    void testSortBar_data();
+    void testSortBar();
+    void testSortBarPreferences();
+    void testSortBarFields();
+    void testPreferredViewMode_data();
+    void testPreferredViewMode();
+    void testPreferredViewPreferences();
     void testSiblingNavigationCancellation();
     void testSiblingNavigationSplitView();
     void testSiblingNavigationSymlink();
@@ -1259,6 +1276,401 @@ void DolphinMainWindowTest::testContainsTypeToFind()
     QVERIFY(!findLabel->isVisible());
     QTest::keyClick(container, Qt::Key_Tab);
     QTRY_VERIFY(!container->hasFocus());
+}
+
+void DolphinMainWindowTest::testSortBar_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<bool>("rightToLeft");
+    QTest::newRow("icons") << int(DolphinView::IconsView) << false;
+    QTest::newRow("compact") << int(DolphinView::CompactView) << false;
+    QTest::newRow("icons-rtl") << int(DolphinView::IconsView) << true;
+    QTest::newRow("compact-rtl") << int(DolphinView::CompactView) << true;
+}
+
+void DolphinMainWindowTest::testSortBar()
+{
+    QFETCH(int, mode);
+    QFETCH(bool, rightToLeft);
+    const bool previous = GeneralSettings::showSortBar();
+    const bool previousGlobal = GeneralSettings::globalViewProps();
+    const auto restore = qScopeGuard([previous, previousGlobal]() {
+        GeneralSettings::setShowSortBar(previous);
+        GeneralSettings::setGlobalViewProps(previousGlobal);
+        GeneralSettings::self()->save();
+    });
+    GeneralSettings::setGlobalViewProps(false);
+    GeneralSettings::setShowSortBar(true);
+    GeneralSettings::self()->save();
+    TestDir directory;
+    directory.createFile(QStringLiteral("alpha.txt"));
+    directory.createFile(QStringLiteral("beta.txt"));
+    for (int index = 0; index < 60; ++index) {
+        directory.createFile(QStringLiteral("sample-%1.txt").arg(index, 3, 10, QLatin1Char('0')));
+    }
+    m_mainWindow->openDirectories({directory.url(), directory.url()}, true);
+    m_mainWindow->resize(1400, 720);
+    m_mainWindow->show();
+    auto *tab = m_mainWindow->m_tabWidget->currentTabPage();
+    auto *view = tab->primaryViewContainer()->view();
+    auto *other = tab->secondaryViewContainer()->view();
+    view->setLayoutDirection(rightToLeft ? Qt::RightToLeft : Qt::LeftToRight);
+    view->setViewMode(DolphinView::Mode(mode));
+    QTRY_COMPARE(view->itemsCount(), 62);
+    auto *bar = view->findChild<QHeaderView *>(QStringLiteral("dolphin_sort_bar"));
+    QVERIFY(bar);
+    QVERIFY(bar->isVisible());
+    QVERIFY(!view->m_view->isHeaderVisible());
+    QTRY_COMPARE(view->m_sortBarArea->height(), bar->height());
+    QCOMPARE(bar->count(), 4);
+    const QList<QByteArray> fields{"text", "size", "modificationtime", "type"};
+    for (int section = 0; section < fields.size(); ++section) {
+        QCOMPARE(bar->model()->headerData(section, Qt::Horizontal, Qt::UserRole).toByteArray(), fields.at(section));
+        QCOMPARE(bar->model()->headerData(section, Qt::Horizontal).toString(), view->m_model->roleDescription(fields.at(section)));
+    }
+    QVERIFY(bar->sectionSize(2) > bar->sectionSize(0));
+    const auto clickSection = [bar](int section) {
+        QTest::mouseClick(bar->viewport(),
+                          Qt::LeftButton,
+                          {},
+                          QPoint(bar->sectionViewportPosition(section) + bar->sectionSize(section) / 2, bar->height() / 2));
+    };
+    view->setSortRole("text");
+    view->setSortOrder(Qt::AscendingOrder);
+    QTRY_COMPARE(view->items().first().name(), QStringLiteral("alpha.txt"));
+    const int nameWidth = bar->sectionSize(0);
+    const QByteArray otherRole = other->sortRole();
+    const Qt::SortOrder otherOrder = other->sortOrder();
+    other->setActive(true);
+    clickSection(0);
+    QCOMPARE(m_mainWindow->activeViewContainer(), tab->primaryViewContainer());
+    QCOMPARE(view->sortOrder(), Qt::DescendingOrder);
+    QTRY_COMPARE(view->items().last().name(), QStringLiteral("alpha.txt"));
+    QCOMPARE(other->sortRole(), otherRole);
+    QCOMPARE(other->sortOrder(), otherOrder);
+    clickSection(1);
+    QCOMPARE(view->sortRole(), QByteArray("size"));
+    QCOMPARE(bar->sortIndicatorSection(), 1);
+    QCOMPARE(bar->sectionSize(0), nameWidth);
+    view->setSortRole("modificationtime");
+    QCOMPARE(bar->sortIndicatorSection(), 2);
+    QCOMPARE(bar->sortIndicatorOrder(), view->sortOrder());
+    const QPoint barPosition = bar->pos();
+    view->m_container->horizontalScrollBar()->setValue(view->m_container->horizontalScrollBar()->maximum());
+    view->m_container->verticalScrollBar()->setValue(view->m_container->verticalScrollBar()->maximum());
+    QCOMPARE(bar->pos(), barPosition);
+    QVERIFY(bar->geometry().bottom() < view->m_container->geometry().top());
+    const QString screenshots = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");
+    if (!screenshots.isEmpty()) {
+        QVERIFY(m_mainWindow->grab().save(screenshots + QStringLiteral("/sort-bar-%1-%2.png").arg(mode).arg(rightToLeft)));
+    }
+    m_mainWindow->resize(820, 520);
+    QTRY_VERIFY(view->width() < 500);
+    QVERIFY(bar->geometry().bottom() < view->m_container->geometry().top());
+    if (!screenshots.isEmpty()) {
+        QVERIFY(m_mainWindow->grab().save(screenshots + QStringLiteral("/sort-bar-narrow-%1-%2.png").arg(mode).arg(rightToLeft)));
+    }
+    view->setViewMode(DolphinView::DetailsView);
+    QVERIFY(!bar->isVisible());
+    QVERIFY(view->m_view->isHeaderVisible());
+    view->setViewMode(DolphinView::Mode(mode));
+    QVERIFY(bar->isVisible());
+    QCOMPARE(view->sortRole(), QByteArray("modificationtime"));
+}
+
+void DolphinMainWindowTest::testSortBarPreferences()
+{
+    const bool previous = GeneralSettings::showSortBar();
+    const auto restore = qScopeGuard([previous]() {
+        GeneralSettings::setShowSortBar(previous);
+        GeneralSettings::self()->save();
+    });
+    GeneralSettings::setShowSortBar(true);
+    GeneralSettings::self()->save();
+    TestDir directory;
+    m_mainWindow->openDirectories({directory.url()}, false);
+    m_mainWindow->show();
+    auto *view = m_mainWindow->activeViewContainer()->view();
+    view->setViewMode(DolphinView::IconsView);
+    auto *bar = view->findChild<QHeaderView *>(QStringLiteral("dolphin_sort_bar"));
+    QVERIFY(bar && bar->isVisible());
+    {
+        GeneralViewSettingsPage cancelled(directory.url(), nullptr);
+        auto *checkbox = cancelled.findChild<QCheckBox *>(QStringLiteral("show_sort_bar"));
+        QVERIFY(checkbox && checkbox->isChecked());
+        checkbox->setChecked(false);
+    }
+    QVERIFY(GeneralSettings::showSortBar());
+    GeneralViewSettingsPage page(directory.url(), nullptr);
+    auto *checkbox = page.findChild<QCheckBox *>(QStringLiteral("show_sort_bar"));
+    QVERIFY(checkbox);
+    QSignalSpy changed(&page, &SettingsPageBase::changed);
+    checkbox->setChecked(false);
+    QVERIFY(!changed.isEmpty());
+    page.applySettings();
+    view->readSettings();
+    QVERIFY(!GeneralSettings::showSortBar());
+    QVERIFY(!bar->isVisible());
+    view->setViewMode(DolphinView::CompactView);
+    QVERIFY(!bar->isVisible());
+    view->setViewMode(DolphinView::DetailsView);
+    QVERIFY(view->m_view->isHeaderVisible());
+    GeneralViewSettingsPage reopened(directory.url(), nullptr);
+    QVERIFY(!reopened.findChild<QCheckBox *>(QStringLiteral("show_sort_bar"))->isChecked());
+    page.restoreDefaults();
+    QVERIFY(checkbox->isChecked());
+    QVERIFY(!GeneralSettings::showSortBar());
+    page.applySettings();
+    view->readSettings();
+    view->setViewMode(DolphinView::IconsView);
+    QVERIFY(bar->isVisible());
+}
+
+void DolphinMainWindowTest::testSortBarFields()
+{
+    const QStringList previous = GeneralSettings::sortBarRoles();
+    const auto restore = qScopeGuard([previous]() {
+        GeneralSettings::setSortBarRoles(previous);
+        GeneralSettings::self()->save();
+    });
+    const QStringList defaults{QStringLiteral("text"), QStringLiteral("size"), QStringLiteral("modificationtime"), QStringLiteral("type")};
+    QCOMPARE(GeneralSettings::self()->findItem(QStringLiteral("SortBarRoles"))->getDefault().toStringList(), defaults);
+    GeneralSettings::setSortBarRoles(defaults);
+    GeneralSettings::self()->save();
+    TestDir directory;
+    m_mainWindow->openDirectories({directory.url(), directory.url()}, true);
+    m_mainWindow->resize(1400, 720);
+    m_mainWindow->show();
+    auto *tab = m_mainWindow->m_tabWidget->currentTabPage();
+    auto *view = tab->primaryViewContainer()->view();
+    auto *other = tab->secondaryViewContainer()->view();
+    view->setViewMode(DolphinView::IconsView);
+    other->setViewMode(DolphinView::DetailsView);
+    const auto detailsFields = other->m_view->visibleRoles();
+    auto *bar = view->findChild<QHeaderView *>(QStringLiteral("dolphin_sort_bar"));
+    QVERIFY(bar);
+    bool hasGroups = false;
+    bool hasNameToggle = false;
+    bool selected = false;
+    const auto choose = [&](const QByteArray &role, bool reset, bool details = false) {
+        selected = false;
+        QTimer::singleShot(0, bar, [&]() {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu) {
+                return;
+            }
+            for (auto *action : menu->actions()) {
+                hasGroups |= action->menu() != nullptr;
+                hasNameToggle |= action->data().toByteArray() == "text";
+            }
+            const QString screenshots = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");
+            if (!screenshots.isEmpty()) {
+                menu->grab().save(screenshots + QStringLiteral("/sort-header-menu.png"));
+            }
+            for (auto *action : menu->actions()) {
+                if ((reset && action->objectName() == QLatin1String("restore_sort_bar_fields")) || (!reset && action->data().toByteArray() == role)) {
+                    selected = true;
+                    QTest::mouseClick(menu, Qt::LeftButton, {}, menu->actionGeometry(action).center());
+                    return;
+                }
+            }
+            menu->close();
+        });
+        if (details) {
+            other->slotHeaderContextMenuRequested(other->mapToGlobal(QPoint(10, 10)));
+        } else {
+            Q_EMIT bar->customContextMenuRequested(QPoint(10, 10));
+        }
+    };
+    choose("creationtime", false);
+    QVERIFY(selected);
+    QVERIFY(hasGroups);
+    QVERIFY(!hasNameToggle);
+    QCOMPARE(bar->count(), 5);
+    QVERIFY(GeneralSettings::sortBarRoles().contains(QStringLiteral("creationtime")));
+    QCOMPARE(other->m_view->visibleRoles(), detailsFields + QList<QByteArray>{"creationtime"});
+    GeneralSettings::self()->load();
+    QVERIFY(GeneralSettings::sortBarRoles().contains(QStringLiteral("creationtime")));
+    DolphinView reopened(directory.url(), nullptr);
+    reopened.setViewMode(DolphinView::CompactView);
+    auto *reopenedHeader = reopened.findChild<QHeaderView *>(QStringLiteral("dolphin_sort_bar"));
+    QCOMPARE(reopenedHeader->count(), 5);
+    choose("size", false, true);
+    QVERIFY(selected);
+    QCOMPARE(bar->count(), 4);
+    QVERIFY(!GeneralSettings::sortBarRoles().contains(QStringLiteral("size")));
+    QCOMPARE(reopenedHeader->count(), 4);
+    QVERIFY(!other->visibleRoles().contains("size"));
+    choose("comment", false);
+    QVERIFY(selected);
+    choose("accesstime", false);
+    QVERIFY(selected);
+    m_mainWindow->resize(820, 520);
+    QTRY_VERIFY(view->m_sortBarArea->horizontalScrollBar()->maximum() > 0);
+    QCOMPARE(view->m_sortBarArea->height(), bar->height() + view->m_sortBarArea->horizontalScrollBar()->sizeHint().height());
+    view->m_sortBarArea->horizontalScrollBar()->setValue(view->m_sortBarArea->horizontalScrollBar()->maximum());
+    QVERIFY(bar->mapTo(view->m_sortBarArea->viewport(), QPoint(bar->length(), 0)).x() <= view->m_sortBarArea->viewport()->width());
+    choose({}, true, true);
+    QVERIFY(selected);
+    QCOMPARE(GeneralSettings::sortBarRoles(), defaults);
+    QCOMPARE(bar->count(), 4);
+    QTRY_COMPARE(view->m_sortBarArea->height(), bar->height());
+    QCOMPARE(other->m_view->visibleRoles(), detailsFields);
+
+    other->m_view->header()->setAutomaticColumnResizing(false);
+    other->m_view->header()->setColumnWidth("size", 137);
+    auto reordered = detailsFields;
+    reordered.move(1, 3);
+    other->m_view->setVisibleRoles(reordered);
+    Q_EMIT other->m_view->visibleRolesChanged(reordered, detailsFields);
+    QCOMPARE(other->visibleRoles(), reordered);
+    QCOMPARE(bar->model()->headerData(3, Qt::Horizontal, Qt::UserRole).toByteArray(), QByteArray("size"));
+    QCOMPARE(ViewProperties(other->viewPropertiesUrl()).headerColumnWidths().at(3), 137);
+    GeneralSettings::self()->load();
+    TestDir destination;
+    other->setUrl(destination.url());
+    other->setViewMode(DolphinView::DetailsView);
+    QCOMPARE(other->visibleRoles(), reordered);
+    reopened.setViewMode(DolphinView::DetailsView);
+    QCOMPARE(reopened.visibleRoles(), reordered);
+
+    choose("creationtime", false, true);
+    QVERIFY(selected);
+    ViewPropertiesDialog properties(other);
+    auto *fields = properties.findChild<QListWidget *>();
+    QVERIFY(fields);
+    const auto created = fields->findItems(other->m_model->roleDescription("creationtime"), Qt::MatchExactly);
+    QCOMPARE(created.size(), 1);
+    QCOMPARE(created.first()->checkState(), Qt::Checked);
+    created.first()->setCheckState(Qt::Unchecked);
+    properties.accept();
+    QVERIFY(!GeneralSettings::sortBarRoles().contains(QStringLiteral("creationtime")));
+    QCOMPARE(bar->count(), 4);
+    choose({}, true, true);
+    QVERIFY(selected);
+    QCOMPARE(GeneralSettings::sortBarRoles(), defaults);
+}
+
+void DolphinMainWindowTest::testPreferredViewMode_data()
+{
+    QTest::addColumn<int>("preference");
+    QTest::addColumn<int>("expectedMode");
+    QTest::addColumn<bool>("global");
+    for (bool global : {false, true}) {
+        const char *suffix = global ? "-global" : "-local";
+        QTest::addRow("last-used%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::LastUsed) << int(DolphinView::DetailsView) << global;
+        QTest::addRow("icons%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Icons) << int(DolphinView::IconsView) << global;
+        QTest::addRow("compact%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Compact) << int(DolphinView::CompactView) << global;
+        QTest::addRow("details%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Details) << int(DolphinView::DetailsView) << global;
+    }
+}
+
+void DolphinMainWindowTest::testPreferredViewMode()
+{
+    QFETCH(int, preference);
+    QFETCH(int, expectedMode);
+    QFETCH(bool, global);
+    const int previousPreference = GeneralSettings::preferredViewMode();
+    const bool previousGlobal = GeneralSettings::globalViewProps();
+    const bool previousDynamic = GeneralSettings::dynamicView();
+    ViewProperties savedGlobal(QUrl::fromLocalFile(QDir::homePath()));
+    savedGlobal.setAutoSaveEnabled(false);
+    const auto restore = qScopeGuard([&]() {
+        GeneralSettings::setPreferredViewMode(previousPreference);
+        GeneralSettings::setGlobalViewProps(previousGlobal);
+        GeneralSettings::setDynamicView(previousDynamic);
+        GeneralSettings::self()->save();
+        if (previousGlobal) {
+            ViewProperties props(QUrl::fromLocalFile(QDir::homePath()));
+            props.setDirProperties(savedGlobal);
+        }
+    });
+    GeneralSettings::setPreferredViewMode(preference);
+    GeneralSettings::setGlobalViewProps(global);
+    GeneralSettings::setDynamicView(false);
+    GeneralSettings::self()->save();
+    TestDir directory;
+    directory.createDir(QStringLiteral("child"));
+    const QUrl child = QUrl::fromLocalFile(directory.filePath(QStringLiteral("child")));
+    QPixmap image(16, 16);
+    image.fill(Qt::red);
+    QVERIFY(image.save(directory.filePath(QStringLiteral("child/image.png"))));
+    for (const QUrl &url : {directory.url(), child}) {
+        ViewProperties props(url);
+        props.setViewMode(DolphinView::DetailsView);
+    }
+    m_mainWindow->openDirectories({directory.url()}, false);
+    auto *container = m_mainWindow->activeViewContainer();
+    auto *view = container->view();
+    QCOMPARE(view->viewMode(), expectedMode);
+    const auto temporaryMode = expectedMode == DolphinView::DetailsView ? DolphinView::CompactView : DolphinView::DetailsView;
+    view->setViewMode(temporaryMode);
+    QCOMPARE(view->viewMode(), temporaryMode);
+    view->reload();
+    QCOMPARE(view->viewMode(), temporaryMode);
+    const bool lastUsed = preference == GeneralSettings::EnumPreferredViewMode::LastUsed;
+    GeneralSettings::setDynamicView(!lastUsed);
+    container->setUrl(child);
+    QTRY_COMPARE(view->itemsCount(), 1);
+    view->applyDynamicView();
+    QCOMPARE(view->viewMode(), lastUsed && global ? int(temporaryMode) : expectedMode);
+    container->setUrl(directory.url());
+    QCOMPARE(view->viewMode(), lastUsed ? int(temporaryMode) : expectedMode);
+    view->setViewMode(temporaryMode);
+    auto *originalTab = m_mainWindow->m_tabWidget->currentTabPage();
+    auto *newTab = m_mainWindow->m_tabWidget->openNewTab(directory.url());
+    QCOMPARE(newTab->primaryViewContainer()->view()->viewMode(), lastUsed ? int(temporaryMode) : expectedMode);
+    m_mainWindow->m_tabWidget->setCurrentIndex(m_mainWindow->m_tabWidget->indexOf(newTab));
+    m_mainWindow->m_tabWidget->setCurrentIndex(m_mainWindow->m_tabWidget->indexOf(originalTab));
+    QCOMPARE(view->viewMode(), temporaryMode);
+    DolphinMainWindow newWindow;
+    newWindow.openDirectories({directory.url()}, false);
+    QCOMPARE(newWindow.activeViewContainer()->view()->viewMode(), lastUsed ? int(temporaryMode) : expectedMode);
+    GeneralSettings::self()->load();
+    QCOMPARE(GeneralSettings::preferredViewMode(), preference);
+}
+
+void DolphinMainWindowTest::testPreferredViewPreferences()
+{
+    const int previous = GeneralSettings::preferredViewMode();
+    const auto restore = qScopeGuard([previous]() {
+        GeneralSettings::setPreferredViewMode(previous);
+        GeneralSettings::self()->save();
+    });
+    GeneralSettings::setPreferredViewMode(GeneralSettings::EnumPreferredViewMode::LastUsed);
+    GeneralSettings::self()->save();
+    TestDir directory;
+    {
+        GeneralViewSettingsPage cancelled(directory.url(), nullptr);
+        auto *combo = cancelled.findChild<QComboBox *>(QStringLiteral("preferred_view_mode"));
+        QVERIFY(combo);
+        QCOMPARE(combo->count(), 4);
+        QCOMPARE(combo->currentData().toInt(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
+        combo->setCurrentIndex(combo->findData(GeneralSettings::EnumPreferredViewMode::Icons));
+    }
+    QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
+    GeneralViewSettingsPage page(directory.url(), nullptr);
+    auto *combo = page.findChild<QComboBox *>(QStringLiteral("preferred_view_mode"));
+    QVERIFY(combo);
+    QSignalSpy changed(&page, &SettingsPageBase::changed);
+    combo->setCurrentIndex(combo->findData(GeneralSettings::EnumPreferredViewMode::Compact));
+    QVERIFY(!changed.isEmpty());
+    page.applySettings();
+    GeneralSettings::self()->load();
+    QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::Compact));
+    GeneralViewSettingsPage reopened(directory.url(), nullptr);
+    QCOMPARE(reopened.findChild<QComboBox *>(QStringLiteral("preferred_view_mode"))->currentData().toInt(),
+             int(GeneralSettings::EnumPreferredViewMode::Compact));
+    page.restoreDefaults();
+    QCOMPARE(combo->currentData().toInt(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
+    QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::Compact));
+    page.applySettings();
+    QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
+    const QString screenshots = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");
+    if (!screenshots.isEmpty()) {
+        page.show();
+        QVERIFY(page.grab().save(QDir(screenshots).filePath(QStringLiteral("preferred-view-settings.png"))));
+    }
 }
 
 void DolphinMainWindowTest::testRequestedTabIsActivated_data()

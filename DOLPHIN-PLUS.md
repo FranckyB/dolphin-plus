@@ -357,6 +357,41 @@ cancellation, and preferences. `dolphinmainwindowtest testFolderCovers` checks
 rendered pixels and live settings changes in the native file view. These are
 offscreen tests, not a desktop performance benchmark.
 
+### Sorting Strip
+
+Icons and Compact views show a native Qt sorting header above each browsing pane,
+using the same header styling as Details view. Name, Size, Modified, and Type are
+shown by default, with sections sized to their labels rather than file columns.
+Clicking the active field reverses its direction; selecting another field uses
+Dolphin's preferred direction. Sorting in one split pane leaves the other pane
+unchanged. A horizontal scrollbar appears only when selected fields do not fit.
+
+Right-click the header to use the same grouped field-selection menu as Details
+view. **Restore Default Fields** at the bottom resets the four standard fields.
+Choices persist across sessions in `General/SortBarRoles` in `dolphinplusrc`,
+and are shared by Icons, Compact, and Details, including other tabs and panes.
+Adding, removing, or reordering Details columns updates the other headers too.
+**Restore Default Fields** is available in all three headers. Name cannot be
+hidden. This shared selection replaces per-folder Details field lists, without
+changing the additional information displayed beneath icons or in Compact items.
+Column resizing and side-padding controls remain specific to Details.
+
+The strip is enabled by default. Disable **Show sorting controls in Icons and
+Compact views** in **Configure Dolphin Plus > View > General** to hide it.
+This is the fork-specific `General/ShowSortBar` setting in `dolphinplusrc`.
+Details view retains its existing resizable column header either way.
+
+### Preferred View
+
+**Configure Dolphin Plus > View > General > Preferred view** offers **Last Used**
+(the default), **Icons**, **Compact**, and **Details**. Last Used keeps Dolphin's
+existing common/per-folder display-style behavior and optional media detection.
+An explicit choice applies whenever you browse to another folder or open a new
+tab or window, even if that location previously used another mode. Manual mode
+changes remain available until navigation; reloading or switching between already
+open tabs does not reset them. Explicit preferences override automatic media view
+switching. The choice is saved as `General/PreferredViewMode` in `dolphinplusrc`.
+
 ### Integrated Image Viewer
 
 Normal single-image activation now opens a Dolphin Plus-owned top-level window

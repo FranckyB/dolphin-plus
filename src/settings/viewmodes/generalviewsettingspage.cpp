@@ -59,6 +59,20 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     topLayout->addRow(QString(), localViewPropsLabel);
     topLayout->addRow(QString(), m_dynamicView);
 
+    m_preferredViewMode = new QComboBox();
+    m_preferredViewMode->setObjectName(QStringLiteral("preferred_view_mode"));
+    m_preferredViewMode->addItem(i18nc("@item:inlistbox", "Last Used"), GeneralSettings::EnumPreferredViewMode::LastUsed);
+    m_preferredViewMode->addItem(QIcon::fromTheme(QStringLiteral("view-list-icons")),
+                                 i18nc("@item:inlistbox", "Icons"),
+                                 GeneralSettings::EnumPreferredViewMode::Icons);
+    m_preferredViewMode->addItem(QIcon::fromTheme(QStringLiteral("view-list-details")),
+                                 i18nc("@item:inlistbox", "Compact"),
+                                 GeneralSettings::EnumPreferredViewMode::Compact);
+    m_preferredViewMode->addItem(QIcon::fromTheme(QStringLiteral("view-list-tree")),
+                                 i18nc("@item:inlistbox", "Details"),
+                                 GeneralSettings::EnumPreferredViewMode::Details);
+    topLayout->addRow(i18nc("@label:listbox", "Preferred view:"), m_preferredViewMode);
+
     topLayout->addItem(new QSpacerItem(0, Dolphin::VERTICAL_SPACER_HEIGHT, QSizePolicy::Fixed, QSizePolicy::Fixed));
 
     // Browsing
@@ -66,6 +80,9 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     m_autoExpandFolders = new QCheckBox(i18nc("option:check", "Open folders during drag operations"));
     topLayout->addRow(i18nc("@title:group", "Browsing: "), m_openArchivesAsFolder);
     topLayout->addRow(QString(), m_autoExpandFolders);
+    m_showSortBar = new QCheckBox(i18nc("@option:check", "Show sorting controls in Icons and Compact views"));
+    m_showSortBar->setObjectName(QStringLiteral("show_sort_bar"));
+    topLayout->addRow(QString(), m_showSortBar);
 
     topLayout->addItem(new QSpacerItem(0, Dolphin::VERTICAL_SPACER_HEIGHT, QSizePolicy::Fixed, QSizePolicy::Fixed));
 
@@ -195,6 +212,7 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
 
     connect(m_openArchivesAsFolder, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
     connect(m_autoExpandFolders, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
+    connect(m_showSortBar, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
 #if HAVE_BALOO
     connect(m_showToolTips, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
 #endif
@@ -202,6 +220,10 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     connect(m_renameInline, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
     connect(m_hideXtrashFiles, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
     connect(m_dynamicView, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
+    connect(m_preferredViewMode, &QComboBox::currentIndexChanged, this, &GeneralViewSettingsPage::changed);
+    connect(m_preferredViewMode, &QComboBox::currentIndexChanged, this, [this]() {
+        m_dynamicView->setEnabled(m_preferredViewMode->currentData().toInt() == GeneralSettings::EnumPreferredViewMode::LastUsed);
+    });
     connect(m_doubleClickViewCustomAction, &QLineEdit::textChanged, this, &GeneralViewSettingsPage::changed);
     connect(m_doubleClickViewComboBox, qOverload<int>(&QComboBox::currentIndexChanged), this, &GeneralViewSettingsPage::changed);
     connect(m_doubleClickViewComboBox, qOverload<int>(&QComboBox::currentIndexChanged), this, &GeneralViewSettingsPage::updateCustomActionVisibility);
@@ -219,9 +241,11 @@ void GeneralViewSettingsPage::applySettings()
     settings->setShowToolTips(m_showToolTips->isChecked());
 #endif
     settings->setShowSelectionToggle(m_showSelectionToggle->isChecked());
+    settings->setShowSortBar(m_showSortBar->isChecked());
     settings->setRenameInline(m_renameInline->isChecked());
     settings->setHideXTrashFile(m_hideXtrashFiles->isChecked());
     settings->setDynamicView(m_dynamicView->isChecked());
+    settings->setPreferredViewMode(m_preferredViewMode->currentData().toInt());
     settings->setAutoExpandFolders(m_autoExpandFolders->isChecked());
     settings->setBrowseThroughArchives(m_openArchivesAsFolder->isChecked());
     settings->setDoubleClickViewCustomAction(m_doubleClickViewCustomAction->text());
@@ -254,9 +278,12 @@ void GeneralViewSettingsPage::loadSettings()
     m_showToolTips->setChecked(GeneralSettings::showToolTips());
 #endif
     m_showSelectionToggle->setChecked(GeneralSettings::showSelectionToggle());
+    m_showSortBar->setChecked(GeneralSettings::showSortBar());
     m_renameInline->setChecked(GeneralSettings::renameInline());
     m_hideXtrashFiles->setChecked(GeneralSettings::hideXTrashFile());
     m_dynamicView->setChecked(GeneralSettings::dynamicView());
+    m_preferredViewMode->setCurrentIndex(m_preferredViewMode->findData(GeneralSettings::preferredViewMode()));
+    m_dynamicView->setEnabled(GeneralSettings::preferredViewMode() == GeneralSettings::EnumPreferredViewMode::LastUsed);
 
     m_localViewProps->setChecked(!useGlobalViewProps);
     m_globalViewProps->setChecked(useGlobalViewProps);
