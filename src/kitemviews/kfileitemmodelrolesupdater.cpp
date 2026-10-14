@@ -105,6 +105,11 @@ KFileItemModelRolesUpdater::KFileItemModelRolesUpdater(KFileItemModel *model, QO
     connect(m_model, &KFileItemModel::itemsChanged, this, &KFileItemModelRolesUpdater::slotItemsChanged);
     connect(m_model, &KFileItemModel::itemsMoved, this, &KFileItemModelRolesUpdater::slotItemsMoved);
     connect(m_model, &KFileItemModel::sortRoleChanged, this, &KFileItemModelRolesUpdater::slotSortRoleChanged);
+    connect(KIconLoader::global(), &KIconLoader::iconChanged, this, [this]() {
+        if (m_previewShown && m_folderCoverSettings.mode == FolderCover::Mode::SingleCover && m_folderCoverSettings.templatePath.isEmpty()) {
+            updateAllPreviews();
+        }
+    });
 
     // Use a timer to prevent that each call of slotItemsChanged() results in a synchronous
     // resolving of the roles. Postpone the resolving until no update has been done for 100 ms.
@@ -626,6 +631,8 @@ void KFileItemModelRolesUpdater::slotPreviewJobFinished()
     if (!m_pendingFolderCovers.isEmpty()) {
         const KFileItem item = m_pendingFolderCovers.takeFirst();
         const auto settings = m_folderCoverSettings;
+        const QImage folderTemplate =
+            settings.mode == FolderCover::Mode::SingleCover && settings.templatePath.isEmpty() ? FolderCover::templateImage(settings) : QImage();
         const QSize size = cacheSize() * m_devicePixelRatio;
         const auto cancel = std::make_shared<std::atomic_bool>(false);
         m_coverCancellation = cancel;
@@ -651,8 +658,8 @@ void KFileItemModelRolesUpdater::slotPreviewJobFinished()
         });
         static QThreadPool pool;
         pool.setMaxThreadCount(2);
-        watcher->setFuture(QtConcurrent::run(&pool, [url = item.url(), settings, size, cancel]() {
-            return settings.mode == FolderCover::Mode::Disabled ? QImage() : FolderCover::generate(url, settings, size, cancel);
+        watcher->setFuture(QtConcurrent::run(&pool, [url = item.url(), settings, size, cancel, folderTemplate]() {
+            return settings.mode == FolderCover::Mode::Disabled ? QImage() : FolderCover::generate(url, settings, size, cancel, folderTemplate);
         }));
         return;
     }

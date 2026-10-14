@@ -11,6 +11,7 @@
 
 #include <KContextualHelpButton>
 #include <KIO/PreviewJob>
+#include <KIconLoader>
 #include <KLocalizedString>
 #include <KMessageBox>
 #include <KPluginMetaData>
@@ -282,7 +283,7 @@ FolderCoversSettingsPage::FolderCoversSettingsPage(QWidget *parent)
         return path;
     };
     m_templatePath = addPath(i18nc("@label:textbox", "Folder template:"), QStringLiteral("folder_cover_template"));
-    m_templatePath->setPlaceholderText(i18nc("@info:placeholder", "Built-in blue folder"));
+    m_templatePath->setPlaceholderText(i18nc("@info:placeholder", "Current icon theme folder"));
     m_samplePath = addPath(i18nc("@label:textbox", "Preview image:"), QStringLiteral("folder_cover_sample"));
     const auto addNumber = [this, form](const QString &label, const QString &name, int minimum, int maximum) {
         auto *number = new QSpinBox(m_coverOptions);
@@ -327,6 +328,7 @@ FolderCoversSettingsPage::FolderCoversSettingsPage(QWidget *parent)
     }
     connect(m_videoFallback, &QCheckBox::toggled, this, update);
     connect(m_respectCustomIcons, &QCheckBox::toggled, this, update);
+    connect(KIconLoader::global(), &KIconLoader::iconChanged, this, &FolderCoversSettingsPage::updatePreview);
 }
 
 FolderCover::Settings FolderCoversSettingsPage::formSettings() const
@@ -336,7 +338,7 @@ FolderCover::Settings FolderCoversSettingsPage::formSettings() const
     if (!m_templatePath->text().trimmed().isEmpty()) {
         settings.templatePath = m_templatePath->text().trimmed();
     }
-    settings.contentRect = QRect(m_contentX->value(), m_contentY->value(), m_contentWidth->value(), m_contentHeight->value());
+    settings.contentRect = QRect(m_contentX->value(), 256 - m_contentY->value() - m_contentHeight->value(), m_contentWidth->value(), m_contentHeight->value());
     settings.radius = m_cornerRadius->value();
     settings.subfolderDepth = m_subfolderDepth->value();
     settings.videoFallback = m_videoFallback->isChecked();
@@ -349,9 +351,10 @@ void FolderCoversSettingsPage::loadForm(const FolderCover::Settings &settings)
     m_coverMode->setCurrentIndex(int(settings.mode));
     m_templatePath->setText(settings.templatePath == FolderCover::Settings().templatePath ? QString() : settings.templatePath);
     m_contentX->setValue(settings.contentRect.x());
-    m_contentY->setValue(settings.contentRect.y());
+    const int bottomOffset = 256 - settings.contentRect.y() - settings.contentRect.height();
+    m_contentY->setValue(bottomOffset);
     m_contentWidth->setMaximum(256 - settings.contentRect.x());
-    m_contentHeight->setMaximum(256 - settings.contentRect.y());
+    m_contentHeight->setMaximum(256 - bottomOffset);
     m_contentWidth->setValue(settings.contentRect.width());
     m_contentHeight->setValue(settings.contentRect.height());
     m_cornerRadius->setValue(settings.radius);
@@ -367,9 +370,7 @@ void FolderCoversSettingsPage::updatePreview()
     m_contentHeight->setMaximum(256 - m_contentY->value());
     const auto settings = formSettings();
     m_coverOptions->setEnabled(settings.mode == FolderCover::Mode::SingleCover);
-    QImageReader templateReader(settings.templatePath);
-    templateReader.setScaledSize(QSize(256, 256));
-    const QImage folder = templateReader.read();
+    const QImage folder = FolderCover::templateImage(settings);
     QImage sample;
     if (!m_samplePath->text().isEmpty()) {
         QImageReader reader(m_samplePath->text());
@@ -398,8 +399,8 @@ void FolderCoversSettingsPage::updatePreview()
 void FolderCoversSettingsPage::applySettings()
 {
     const auto settings = formSettings();
-    if (settings.mode == FolderCover::Mode::SingleCover && !QImageReader(settings.templatePath).canRead()) {
-        KMessageBox::error(this, i18nc("@info", "Choose a readable folder template, or clear the template field to use the built-in folder."));
+    if (settings.mode == FolderCover::Mode::SingleCover && FolderCover::templateImage(settings).isNull()) {
+        KMessageBox::error(this, i18nc("@info", "Choose a readable folder template, or clear the template field to use the current icon theme."));
         return;
     }
     FolderCover::saveSettings(settings);

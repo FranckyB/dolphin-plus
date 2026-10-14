@@ -81,6 +81,11 @@ Search for **Dolphin Plus** in the application launcher, or run
 not include `~/.local/bin`; no shell startup files were changed. The registered
 desktop entry uses an absolute executable path and does not need that PATH entry.
 
+The launcher and window use the theme's `org.kde.dolphin` icon, like stock Dolphin.
+The application retains its independent `local.dolphinplus` desktop identity;
+sharing an icon name does not share settings or launch stock Dolphin. Window
+icons refresh on KDE icon-theme changes, with the bundled icon as a fallback.
+
 Future installs to the staging directory update this desktop application too.
 Keep the project and its staging directory in place and accessible. Close
 Dolphin Plus before replacing its executable or libraries. This registration
@@ -308,16 +313,23 @@ Folder Covers** selects Standard Dolphin previews, Single cover (the default),
 or No folder previews. File thumbnails are unaffected. Single covers apply to
 local folders; remote folders keep native previews.
 
-The bundled blue folder template comes from the folder-thumbnail generator's
-`script_files/folder.png`. A custom image can replace it. Content X/Y, width,
+The default folder template follows the active icon theme's `folder` icon,
+matching Dolphin's normal folder icon. Theme changes refresh both the settings
+preview and generated covers; the old built-in blue-folder setting automatically
+uses the current theme. A custom image can replace it; clearing the template
+field restores the themed folder. Content X/Y, width,
 height, and corner radius use a fixed 256 x 256 coordinate system, independent
-of the template resolution or displayed icon size. Images are center-cropped
+of the template resolution or displayed icon size. X measures from the left;
+Y measures from the bottom, so increasing Y moves the image upward. Existing
+saved positions are preserved. Images are center-cropped
 to fill the rounded content region. A live preview accepts an optional sample
-image; the sample is not saved. Apply updates open file views; Cancel leaves
+image; the sample is not saved. Theme changes preserve your content region and
+corner radius, which can be adjusted for the shape of another theme's folder.
+Apply updates open file views; Cancel leaves
 saved settings unchanged.
 
-Readable images are preferred in this order: `fanart`, `landscape`, `poster`,
-then other filenames alphabetically, ignoring case. Supported extensions are
+The first readable image is selected by filename alphabetically, ignoring case,
+with no special preference for particular names. Supported extensions are
 JPEG, PNG, WebP, BMP, and GIF, subject to installed Qt decoders. Optional video
 fallback uses `ffmpeg` and `ffprobe` from PATH to extract a midpoint frame
 (one second when duration is unavailable). Missing tools or unreadable media

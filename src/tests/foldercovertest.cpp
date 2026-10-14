@@ -5,15 +5,18 @@
 
 #include <KConfig>
 #include <KConfigGroup>
+#include <KIconLoader>
 #include <QComboBox>
 #include <QDir>
 #include <QEvent>
 #include <QFile>
 #include <QFutureWatcher>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QProcess>
 #include <QScopeGuard>
+#include <QSignalSpy>
 #include <QSpinBox>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -34,6 +37,108 @@ class FolderCoverTest : public QObject
     }
 
 private Q_SLOTS:
+    void themeTemplate()
+    {
+        const auto previousSettings = FolderCover::loadSettings();
+        const auto previousTheme = QIcon::themeName();
+        const auto previousSearchPaths = QIcon::themeSearchPaths();
+        const auto restore = qScopeGuard([&]() {
+            FolderCover::saveSettings(previousSettings);
+            QIcon::setThemeSearchPaths(previousSearchPaths);
+            QIcon::setThemeName(previousTheme);
+        });
+        QTemporaryDir themes;
+        QVERIFY(themes.isValid());
+        for (const QString &name : {QStringLiteral("cover-red"), QStringLiteral("cover-green")}) {
+            const QString themePath = themes.filePath(name);
+            QVERIFY(QDir().mkpath(themePath + QStringLiteral("/256x256/places")));
+            KConfig index(themePath + QStringLiteral("/index.theme"), KConfig::SimpleConfig);
+            auto theme = index.group(QStringLiteral("Icon Theme"));
+            theme.writeEntry("Name", name);
+            theme.writeEntry("Directories", QStringList{QStringLiteral("256x256/places")});
+            auto size = index.group(QStringLiteral("256x256/places"));
+            size.writeEntry("Size", 256);
+            size.writeEntry("Type", "Fixed");
+            size.writeEntry("Context", "Places");
+            index.sync();
+            QImage icon(256, 256, QImage::Format_ARGB32_Premultiplied);
+            icon.fill(name == QLatin1String("cover-red") ? Qt::red : Qt::green);
+            QVERIFY(icon.save(themePath + QStringLiteral("/256x256/places/folder.png")));
+        }
+        QIcon::setThemeSearchPaths(QStringList{themes.path()} + previousSearchPaths);
+        QIcon::setThemeName(QStringLiteral("cover-red"));
+        FolderCover::Settings legacy;
+        legacy.templatePath = QStringLiteral(":/dolphinplus/foldercover.png");
+        FolderCover::saveSettings(legacy);
+        auto settings = FolderCover::loadSettings();
+        QVERIFY(settings.templatePath.isEmpty());
+        QCOMPARE(FolderCover::templateImage(settings).pixelColor(128, 20), QColor(Qt::red));
+
+        FolderCoversSettingsPage page;
+        auto *preview = page.findChild<QLabel *>(QStringLiteral("folder_cover_preview"));
+        auto *templatePath = page.findChild<QLineEdit *>(QStringLiteral("folder_cover_template"));
+        QVERIFY(preview && templatePath);
+        QVERIFY(templatePath->text().isEmpty());
+        QCOMPARE(preview->pixmap().toImage().pixelColor(128, 20), QColor(Qt::red));
+        QSignalSpy changed(&page, &SettingsPageBase::changed);
+        QTemporaryDir directory;
+        QVERIFY(QDir(directory.path()).mkdir(QStringLiteral("child")));
+        QImage source(80, 60, QImage::Format_RGB32);
+        source.fill(Qt::blue);
+        QVERIFY(source.save(directory.filePath(QStringLiteral("child/a.png"))));
+        const auto url = QUrl::fromLocalFile(directory.filePath(QStringLiteral("child")));
+        const auto cancel = std::make_shared<std::atomic_bool>(false);
+        auto cover = FolderCover::generate(url, settings, QSize(256, 256), cancel);
+        QCOMPARE(cover.pixelColor(128, 20), QColor(Qt::red));
+        QCOMPARE(cover.pixelColor(128, 128), QColor(Qt::blue));
+        KFileItemModel model;
+        KFileItemModelRolesUpdater updater(&model);
+        updater.setIconSize(QSize(256, 256));
+        updater.setPreviewsShown(true);
+        updater.setVisibleIndexRange(0, 1);
+        model.loadDirectory(QUrl::fromLocalFile(directory.path()));
+        QTRY_COMPARE(model.count(), 1);
+        const auto previewImage = [&model]() {
+            return model.data(0).value("iconPixmap").value<QPixmap>().toImage();
+        };
+        QTRY_VERIFY(!previewImage().isNull());
+        QCOMPARE(previewImage().pixelColor(128, 20), QColor(Qt::red));
+
+        QIcon::setThemeName(QStringLiteral("cover-green"));
+        Q_EMIT KIconLoader::global()->iconChanged(KIconLoader::Desktop);
+        QCOMPARE(preview->pixmap().toImage().pixelColor(128, 20), QColor(Qt::green));
+        QVERIFY(changed.isEmpty());
+        cover = FolderCover::generate(url, settings, QSize(256, 256), cancel);
+        QCOMPARE(cover.pixelColor(128, 20), QColor(Qt::green));
+        QCOMPARE(cover.pixelColor(128, 128), QColor(Qt::blue));
+        QTRY_COMPARE(previewImage().pixelColor(128, 20), QColor(Qt::green));
+        updater.setPaused(true);
+        QIcon::setThemeName(QStringLiteral("cover-red"));
+        Q_EMIT KIconLoader::global()->iconChanged(KIconLoader::Desktop);
+        QCOMPARE(previewImage().pixelColor(128, 20), QColor(Qt::green));
+        updater.setPaused(false);
+        QTRY_COMPARE(previewImage().pixelColor(128, 20), QColor(Qt::red));
+
+        source.fill(Qt::magenta);
+        const QString customPath = themes.filePath(QStringLiteral("custom.png"));
+        QVERIFY(source.save(customPath));
+        templatePath->setText(customPath);
+        page.applySettings();
+        settings = FolderCover::loadSettings();
+        QCOMPARE(settings.templatePath, customPath);
+        updater.setEnabledPlugins(updater.enabledPlugins());
+        QTRY_COMPARE(previewImage().pixelColor(128, 20), QColor(Qt::magenta));
+        QIcon::setThemeName(QStringLiteral("cover-green"));
+        Q_EMIT KIconLoader::global()->iconChanged(KIconLoader::Desktop);
+        QCOMPARE(preview->pixmap().toImage().pixelColor(128, 20), QColor(Qt::magenta));
+        QCOMPARE(FolderCover::generate(url, settings, QSize(256, 256), cancel).pixelColor(128, 20), QColor(Qt::magenta));
+        QCOMPARE(previewImage().pixelColor(128, 20), QColor(Qt::magenta));
+        templatePath->clear();
+        page.applySettings();
+        QVERIFY(FolderCover::loadSettings().templatePath.isEmpty());
+        QCOMPARE(preview->pixmap().toImage().pixelColor(128, 20), QColor(Qt::green));
+    }
+
     void cacheInvalidation()
     {
         QTemporaryDir directory;
@@ -117,23 +222,44 @@ private Q_SLOTS:
         page.show();
         auto *radius = page.findChild<QSpinBox *>(QStringLiteral("folder_cover_radius"));
         auto *position = page.findChild<QSpinBox *>(QStringLiteral("folder_cover_x"));
+        auto *verticalPosition = page.findChild<QSpinBox *>(QStringLiteral("folder_cover_y"));
+        auto *height = page.findChild<QSpinBox *>(QStringLiteral("folder_cover_height"));
         auto *width = page.findChild<QSpinBox *>(QStringLiteral("folder_cover_width"));
         auto *preview = page.findChild<QLabel *>(QStringLiteral("folder_cover_preview"));
-        QVERIFY(radius && position && width && preview);
+        QVERIFY(radius && position && verticalPosition && height && width && preview);
+        const auto defaultRect = FolderCover::Settings().contentRect;
+        const int defaultY = 256 - defaultRect.y() - defaultRect.height();
+        QCOMPARE(verticalPosition->value(), defaultY);
         QCOMPARE(radius->value(), 18);
         QVERIFY(!preview->pixmap().isNull());
         radius->setValue(0);
         QCOMPARE(FolderCover::loadSettings().radius, 18);
         page.applySettings();
         QCOMPARE(FolderCover::loadSettings().radius, 0);
+        QCOMPARE(FolderCover::loadSettings().contentRect, defaultRect);
+        const QImage before = preview->pixmap().toImage();
+        verticalPosition->setValue(defaultY + 10);
+        QCOMPARE(height->value(), defaultRect.height());
+        QVERIFY(preview->pixmap().toImage().pixelColor(128, defaultRect.y() - 5) != before.pixelColor(128, defaultRect.y() - 5));
+        QCOMPARE(FolderCover::loadSettings().contentRect, defaultRect);
+        page.applySettings();
+        QCOMPARE(FolderCover::loadSettings().contentRect, defaultRect.translated(0, -10));
+        FolderCoversSettingsPage reopened;
+        QCOMPARE(reopened.findChild<QSpinBox *>(QStringLiteral("folder_cover_y"))->value(), defaultY + 10);
+        verticalPosition->setValue(255);
+        QCOMPARE(height->maximum(), 1);
+        QCOMPARE(height->value(), 1);
         position->setValue(240);
         QCOMPARE(width->maximum(), 16);
         page.restoreDefaults();
         QCOMPARE(radius->value(), 18);
         QCOMPARE(width->value(), 225);
+        QCOMPARE(verticalPosition->value(), defaultY);
+        QCOMPARE(height->value(), defaultRect.height());
         QCOMPARE(FolderCover::loadSettings().radius, 0);
         page.applySettings();
         QCOMPARE(FolderCover::loadSettings().radius, 18);
+        QCOMPARE(FolderCover::loadSettings().contentRect, defaultRect);
         const QString screenshots = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");
         if (!screenshots.isEmpty()) {
             QVERIFY(page.grab().save(screenshots + QStringLiteral("/folder-cover-preferences.png")));
@@ -298,7 +424,15 @@ private Q_SLOTS:
         QStandardPaths::setTestModeEnabled(true);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
+        QFile broken(directory.filePath(QStringLiteral("0-broken.png")));
+        QVERIFY(broken.open(QIODevice::WriteOnly));
+        QCOMPARE(broken.write("not an image"), 12);
+        broken.close();
         QImage image(80, 60, QImage::Format_RGB32);
+        image.fill(Qt::magenta);
+        QVERIFY(image.save(directory.filePath(QStringLiteral("B.png"))));
+        image.fill(Qt::cyan);
+        QVERIFY(image.save(directory.filePath(QStringLiteral("poster.png"))));
         image.fill(Qt::red);
         QVERIFY(image.save(directory.filePath(QStringLiteral("a.png"))));
         image.fill(Qt::green);
@@ -308,18 +442,20 @@ private Q_SLOTS:
         const auto url = QUrl::fromLocalFile(directory.path());
         auto cover = FolderCover::generate(url, settings, QSize(256, 256), cancel);
         QVERIFY(!cover.isNull());
-        QCOMPARE(cover.pixelColor(128, 128), QColor(Qt::green));
+        QCOMPARE(cover.pixelColor(128, 128), QColor(Qt::red));
         image.fill(Qt::blue);
         QVERIFY(image.save(directory.filePath(QStringLiteral("fanart.png"))));
         cover = FolderCover::generate(url, settings, QSize(256, 256), cancel);
-        QCOMPARE(cover.pixelColor(128, 128), QColor(Qt::blue));
+        QCOMPARE(cover.pixelColor(128, 128), QColor(Qt::red));
         QVERIFY(!QFile::exists(directory.filePath(QStringLiteral(".folder.png"))));
         QVERIFY(!QFile::exists(directory.filePath(QStringLiteral(".directory"))));
         settings.contentRect = QRect(0, 0, 50, 50);
         cover = FolderCover::generate(url, settings, QSize(256, 256), cancel);
-        QCOMPARE(cover.pixelColor(25, 25), QColor(Qt::blue));
-        QVERIFY(cover.pixelColor(128, 128) != QColor(Qt::blue));
+        QCOMPARE(cover.pixelColor(25, 25), QColor(Qt::red));
+        QVERIFY(cover.pixelColor(128, 128) != QColor(Qt::red));
         settings = {};
+        QVERIFY(QFile::remove(directory.filePath(QStringLiteral("a.png"))));
+        QCOMPARE(FolderCover::generate(url, settings, QSize(256, 256), cancel).pixelColor(128, 128), QColor(Qt::magenta));
         KConfig metadata(directory.filePath(QStringLiteral(".directory")), KConfig::SimpleConfig);
         metadata.group(QStringLiteral("Desktop Entry")).writeEntry("Icon", "folder-red");
         metadata.sync();

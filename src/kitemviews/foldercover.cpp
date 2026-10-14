@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QElapsedTimer>
+#include <QIcon>
 #include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -17,6 +18,7 @@
 #include <QProcess>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QThread>
 
 #include <algorithm>
 
@@ -26,6 +28,9 @@ FolderCover::Settings FolderCover::loadSettings()
     Settings settings;
     settings.mode = static_cast<Mode>(qBound(0, group.readEntry("Mode", int(settings.mode)), 2));
     settings.templatePath = group.readEntry("Template", settings.templatePath);
+    if (settings.templatePath == QLatin1String(":/dolphinplus/foldercover.png")) {
+        settings.templatePath.clear();
+    }
     settings.contentRect = group.readEntry("ContentRect", settings.contentRect).intersected(QRect(0, 0, 256, 256));
     if (settings.contentRect.isEmpty()) {
         settings.contentRect = Settings().contentRect;
@@ -133,6 +138,17 @@ QImage videoFrame(const QString &path, const FolderCover::Cancellation &cancel)
 }
 }
 
+QImage FolderCover::templateImage(const Settings &settings)
+{
+    if (!settings.templatePath.isEmpty() && settings.templatePath != QLatin1String(":/dolphinplus/foldercover.png")) {
+        return readImage(settings.templatePath);
+    }
+    if (!QThread::isMainThread()) {
+        return {};
+    }
+    return QIcon::fromTheme(QStringLiteral("folder")).pixmap(QSize(256, 256), 1.0).toImage();
+}
+
 bool FolderCover::usesCustomIcon(const QUrl &directory, const Settings &settings)
 {
     if (!directory.isLocalFile()) {
@@ -153,7 +169,7 @@ bool FolderCover::usesCustomIcon(const QUrl &directory, const Settings &settings
     return settings.respectCustomIcons || QFileInfo(iconPath).isFile();
 }
 
-QImage FolderCover::generate(const QUrl &directory, const Settings &settings, const QSize &size, const Cancellation &cancel)
+QImage FolderCover::generate(const QUrl &directory, const Settings &settings, const QSize &size, const Cancellation &cancel, const QImage &folderTemplate)
 {
     if (!directory.isLocalFile() || cancel->load() || size.isEmpty() || size.width() > 2048 || size.height() > 2048) {
         return {};
@@ -162,7 +178,7 @@ QImage FolderCover::generate(const QUrl &directory, const Settings &settings, co
     if (usesCustomIcon(directory, settings)) {
         return {};
     }
-    const QImage folder = readImage(settings.templatePath);
+    const QImage folder = folderTemplate.isNull() ? templateImage(settings) : folderTemplate;
     if (folder.isNull()) {
         return {};
     }
@@ -190,7 +206,6 @@ QImage FolderCover::generate(const QUrl &directory, const Settings &settings, co
                                       QStringLiteral("ts"),
                                       QStringLiteral("mts"),
                                       QStringLiteral("m2ts")};
-    const QStringList preferred{QStringLiteral("fanart"), QStringLiteral("landscape"), QStringLiteral("poster")};
     QStringList directories{root};
     int scanned = 0;
     int attempted = 0;
@@ -214,13 +229,11 @@ QImage FolderCover::generate(const QUrl &directory, const Settings &settings, co
                     candidates.append(entry);
                 }
             }
-            std::sort(candidates.begin(), candidates.end(), [&preferred, &imageExtensions](const QFileInfo &first, const QFileInfo &second) {
-                const auto rank = [&preferred, &imageExtensions](const QFileInfo &entry) {
-                    const int preferredIndex = preferred.indexOf(entry.completeBaseName().toLower());
-                    return (imageExtensions.contains(entry.suffix().toLower()) ? 0 : 10) + (preferredIndex < 0 ? preferred.size() : preferredIndex);
-                };
-                if (rank(first) != rank(second)) {
-                    return rank(first) < rank(second);
+            std::sort(candidates.begin(), candidates.end(), [&imageExtensions](const QFileInfo &first, const QFileInfo &second) {
+                const bool firstIsImage = imageExtensions.contains(first.suffix().toLower());
+                const bool secondIsImage = imageExtensions.contains(second.suffix().toLower());
+                if (firstIsImage != secondIsImage) {
+                    return firstIsImage;
                 }
                 const int comparison = QString::compare(first.fileName(), second.fileName(), Qt::CaseInsensitive);
                 return comparison ? comparison < 0 : first.fileName() < second.fileName();

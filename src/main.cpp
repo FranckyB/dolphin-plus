@@ -23,6 +23,7 @@
 #include <KCrash>
 #include <KDBusService>
 #include <KIO/PreviewJob>
+#include <KIconLoader>
 #include <KIconTheme>
 #include <KLocalizedString>
 #include <KWindowSystem>
@@ -74,7 +75,11 @@ int main(int argc, char **argv)
 
     QApplication app(argc, argv);
     Q_INIT_RESOURCE(dolphin);
-    app.setWindowIcon(QIcon::fromTheme(QStringLiteral("local.dolphinplus"), QIcon(QStringLiteral(":/icons/local.dolphinplus.svg"))));
+    const auto updateApplicationIcon = [&app]() {
+        app.setWindowIcon(QIcon::fromTheme(QStringLiteral("org.kde.dolphin"), QIcon(QStringLiteral(":/icons/local.dolphinplus.svg"))));
+    };
+    updateApplicationIcon();
+    QObject::connect(KIconLoader::global(), &KIconLoader::iconChanged, &app, updateApplicationIcon);
 
 #if HAVE_STYLE_MANAGER
     /**
