@@ -8,7 +8,6 @@
 
 #include "config-dolphin.h"
 #include "settings/settingspagebase.h"
-#include <qradiobutton.h>
 
 #include <QUrl>
 
@@ -16,7 +15,6 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
-class QRadioButton;
 
 /**
  * @brief Tab page for the 'View tab' settings of the Dolphin settings dialog.
@@ -41,8 +39,7 @@ private:
 
 private:
     QUrl m_url;
-    QRadioButton *m_localViewProps = nullptr;
-    QRadioButton *m_globalViewProps = nullptr;
+    QCheckBox *m_localViewProps = nullptr;
 #if HAVE_BALOO
     QCheckBox *m_showToolTips = nullptr;
 #endif
@@ -54,6 +51,7 @@ private:
     QCheckBox *m_hideXtrashFiles = nullptr;
     QCheckBox *m_dynamicView = nullptr;
     QComboBox *m_preferredViewMode = nullptr;
+    QCheckBox *m_archiveExtractionMode = nullptr;
     QComboBox *m_doubleClickViewComboBox = nullptr;
     QLineEdit *m_doubleClickViewCustomAction = nullptr;
     QLabel *m_doubleClickViewCustomActionInfo = nullptr;

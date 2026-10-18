@@ -53,6 +53,9 @@ ViewPropertySettings *ViewProperties::loadProperties(const QString &folderPath) 
 
     KFileMetaData::UserMetaData metadata(folderPath);
     if (!metadata.isSupported()) {
+        if (!file->exists()) {
+            return nullptr;
+        }
         auto fileConfig = std::make_unique<KConfig>(file, KConfig::OpenFlag::SimpleConfig);
         return new ViewPropertySettings(std::move(fileConfig));
     }
@@ -117,6 +120,19 @@ ViewPropertySettings *ViewProperties::defaultProperties() const
         props = new ViewPropertySettings(std::move(bufferConfig));
     }
 
+    switch (GeneralSettings::preferredViewMode()) {
+    case GeneralSettings::EnumPreferredViewMode::Icons:
+        props->setViewMode(DolphinView::IconsView);
+        break;
+    case GeneralSettings::EnumPreferredViewMode::Compact:
+        props->setViewMode(DolphinView::CompactView);
+        break;
+    case GeneralSettings::EnumPreferredViewMode::Details:
+        props->setViewMode(DolphinView::DetailsView);
+        break;
+    default:
+        break;
+    }
     return props;
 }
 

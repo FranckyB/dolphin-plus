@@ -108,6 +108,8 @@ private Q_SLOTS:
     void testSortBarFields();
     void testPreferredViewMode_data();
     void testPreferredViewMode();
+    void testDisplayStyleFallbackAndMedia_data();
+    void testDisplayStyleFallbackAndMedia();
     void testPreferredViewPreferences();
     void testSiblingNavigationCancellation();
     void testSiblingNavigationSplitView();
@@ -1559,8 +1561,10 @@ void DolphinMainWindowTest::testPreferredViewMode_data()
     for (bool global : {false, true}) {
         const char *suffix = global ? "-global" : "-local";
         QTest::addRow("last-used%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::LastUsed) << int(DolphinView::DetailsView) << global;
-        QTest::addRow("icons%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Icons) << int(DolphinView::IconsView) << global;
-        QTest::addRow("compact%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Compact) << int(DolphinView::CompactView) << global;
+        QTest::addRow("icons%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Icons)
+                                         << int(global ? DolphinView::IconsView : DolphinView::DetailsView) << global;
+        QTest::addRow("compact%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Compact)
+                                           << int(global ? DolphinView::CompactView : DolphinView::DetailsView) << global;
         QTest::addRow("details%s", suffix) << int(GeneralSettings::EnumPreferredViewMode::Details) << int(DolphinView::DetailsView) << global;
     }
 }
@@ -1609,35 +1613,110 @@ void DolphinMainWindowTest::testPreferredViewMode()
     view->reload();
     QCOMPARE(view->viewMode(), temporaryMode);
     const bool lastUsed = preference == GeneralSettings::EnumPreferredViewMode::LastUsed;
-    GeneralSettings::setDynamicView(!lastUsed);
     container->setUrl(child);
     QTRY_COMPARE(view->itemsCount(), 1);
     view->applyDynamicView();
     QCOMPARE(view->viewMode(), lastUsed && global ? int(temporaryMode) : expectedMode);
     container->setUrl(directory.url());
-    QCOMPARE(view->viewMode(), lastUsed ? int(temporaryMode) : expectedMode);
+    QCOMPARE(view->viewMode(), lastUsed || !global ? int(temporaryMode) : expectedMode);
     view->setViewMode(temporaryMode);
     auto *originalTab = m_mainWindow->m_tabWidget->currentTabPage();
     auto *newTab = m_mainWindow->m_tabWidget->openNewTab(directory.url());
-    QCOMPARE(newTab->primaryViewContainer()->view()->viewMode(), lastUsed ? int(temporaryMode) : expectedMode);
+    QCOMPARE(newTab->primaryViewContainer()->view()->viewMode(), lastUsed || !global ? int(temporaryMode) : expectedMode);
     m_mainWindow->m_tabWidget->setCurrentIndex(m_mainWindow->m_tabWidget->indexOf(newTab));
     m_mainWindow->m_tabWidget->setCurrentIndex(m_mainWindow->m_tabWidget->indexOf(originalTab));
     QCOMPARE(view->viewMode(), temporaryMode);
     DolphinMainWindow newWindow;
     newWindow.openDirectories({directory.url()}, false);
-    QCOMPARE(newWindow.activeViewContainer()->view()->viewMode(), lastUsed ? int(temporaryMode) : expectedMode);
+    QCOMPARE(newWindow.activeViewContainer()->view()->viewMode(), lastUsed || !global ? int(temporaryMode) : expectedMode);
     GeneralSettings::self()->load();
     QCOMPARE(GeneralSettings::preferredViewMode(), preference);
+}
+
+void DolphinMainWindowTest::testDisplayStyleFallbackAndMedia_data()
+{
+    QTest::addColumn<bool>("remember");
+    QTest::addColumn<bool>("dynamic");
+    QTest::newRow("fixed") << false << false;
+    QTest::newRow("fixed-media") << false << true;
+    QTest::newRow("remembered") << true << false;
+    QTest::newRow("remembered-media") << true << true;
+}
+
+void DolphinMainWindowTest::testDisplayStyleFallbackAndMedia()
+{
+    QFETCH(bool, remember);
+    QFETCH(bool, dynamic);
+    const int previousPreference = GeneralSettings::preferredViewMode();
+    const bool previousGlobal = GeneralSettings::globalViewProps();
+    const bool previousDynamic = GeneralSettings::dynamicView();
+    const auto restore = qScopeGuard([&]() {
+        GeneralSettings::setPreferredViewMode(previousPreference);
+        GeneralSettings::setGlobalViewProps(previousGlobal);
+        GeneralSettings::setDynamicView(previousDynamic);
+        GeneralSettings::self()->save();
+    });
+    GeneralSettings::setPreferredViewMode(GeneralSettings::EnumPreferredViewMode::Details);
+    GeneralSettings::setGlobalViewProps(false);
+    GeneralSettings::setDynamicView(dynamic);
+    TestDir directory;
+    directory.createDir(QStringLiteral("plain"));
+    directory.createDir(QStringLiteral("media"));
+    directory.createDir(QStringLiteral("saved"));
+    const QUrl plain = QUrl::fromLocalFile(directory.filePath(QStringLiteral("plain")));
+    const QUrl media = QUrl::fromLocalFile(directory.filePath(QStringLiteral("media")));
+    const QUrl saved = QUrl::fromLocalFile(directory.filePath(QStringLiteral("saved")));
+    QPixmap image(16, 16);
+    image.fill(Qt::red);
+    QVERIFY(image.save(directory.filePath(QStringLiteral("media/image.png"))));
+    QVERIFY(image.save(directory.filePath(QStringLiteral("saved/image.png"))));
+    {
+        ViewProperties props(saved);
+        props.setViewMode(DolphinView::CompactView);
+    }
+    GeneralSettings::setGlobalViewProps(!remember);
+    GeneralSettings::self()->save();
+    m_mainWindow->openDirectories({plain}, false);
+    auto *container = m_mainWindow->activeViewContainer();
+    auto *view = container->view();
+    QCOMPARE(view->viewMode(), DolphinView::DetailsView);
+    if (remember) {
+        GeneralSettings::setPreferredViewMode(GeneralSettings::EnumPreferredViewMode::Icons);
+        QCOMPARE(ViewProperties(plain).viewMode(), DolphinView::IconsView);
+        GeneralSettings::setPreferredViewMode(GeneralSettings::EnumPreferredViewMode::Details);
+    }
+    container->setUrl(media);
+    QTRY_COMPARE(view->itemsCount(), 1);
+    view->applyDynamicView();
+    QCOMPARE(view->viewMode(), dynamic ? DolphinView::IconsView : DolphinView::DetailsView);
+    container->setUrl(plain);
+    QCOMPARE(view->viewMode(), DolphinView::DetailsView);
+    container->setUrl(saved);
+    QTRY_COMPARE(view->itemsCount(), 1);
+    view->applyDynamicView();
+    QCOMPARE(view->viewMode(), dynamic ? DolphinView::IconsView : remember ? DolphinView::CompactView : DolphinView::DetailsView);
+    if (dynamic) {
+        view->setViewMode(DolphinView::DetailsView);
+        view->reload();
+        QTRY_COMPARE(view->itemsCount(), 1);
+        QCOMPARE(view->viewMode(), remember ? DolphinView::DetailsView : DolphinView::IconsView);
+    }
 }
 
 void DolphinMainWindowTest::testPreferredViewPreferences()
 {
     const int previous = GeneralSettings::preferredViewMode();
-    const auto restore = qScopeGuard([previous]() {
+    const bool previousGlobal = GeneralSettings::globalViewProps();
+    const bool previousDynamic = GeneralSettings::dynamicView();
+    const auto restore = qScopeGuard([=]() {
         GeneralSettings::setPreferredViewMode(previous);
+        GeneralSettings::setGlobalViewProps(previousGlobal);
+        GeneralSettings::setDynamicView(previousDynamic);
         GeneralSettings::self()->save();
     });
     GeneralSettings::setPreferredViewMode(GeneralSettings::EnumPreferredViewMode::LastUsed);
+    GeneralSettings::setGlobalViewProps(true);
+    GeneralSettings::setDynamicView(false);
     GeneralSettings::self()->save();
     TestDir directory;
     {
@@ -1647,23 +1726,46 @@ void DolphinMainWindowTest::testPreferredViewPreferences()
         QCOMPARE(combo->count(), 4);
         QCOMPARE(combo->currentData().toInt(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
         combo->setCurrentIndex(combo->findData(GeneralSettings::EnumPreferredViewMode::Icons));
+        auto *remember = cancelled.findChild<QCheckBox *>(QStringLiteral("remember_display_style"));
+        auto *dynamic = cancelled.findChild<QCheckBox *>(QStringLiteral("dynamic_view"));
+        QVERIFY(remember);
+        QVERIFY(dynamic);
+        QVERIFY(dynamic->isEnabled());
+        remember->setChecked(true);
+        dynamic->setChecked(true);
     }
     QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
+    QVERIFY(GeneralSettings::globalViewProps());
+    QVERIFY(!GeneralSettings::dynamicView());
     GeneralViewSettingsPage page(directory.url(), nullptr);
     auto *combo = page.findChild<QComboBox *>(QStringLiteral("preferred_view_mode"));
     QVERIFY(combo);
     QSignalSpy changed(&page, &SettingsPageBase::changed);
     combo->setCurrentIndex(combo->findData(GeneralSettings::EnumPreferredViewMode::Compact));
+    auto *remember = page.findChild<QCheckBox *>(QStringLiteral("remember_display_style"));
+    auto *dynamic = page.findChild<QCheckBox *>(QStringLiteral("dynamic_view"));
+    QVERIFY(remember);
+    QVERIFY(dynamic);
+    QVERIFY(dynamic->isEnabled());
+    remember->setChecked(true);
+    dynamic->setChecked(true);
     QVERIFY(!changed.isEmpty());
     page.applySettings();
     GeneralSettings::self()->load();
     QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::Compact));
+    QVERIFY(!GeneralSettings::globalViewProps());
+    QVERIFY(GeneralSettings::dynamicView());
     GeneralViewSettingsPage reopened(directory.url(), nullptr);
+    QVERIFY(reopened.findChild<QCheckBox *>(QStringLiteral("remember_display_style"))->isChecked());
+    QVERIFY(reopened.findChild<QCheckBox *>(QStringLiteral("dynamic_view"))->isChecked());
+    QVERIFY(reopened.findChild<QCheckBox *>(QStringLiteral("dynamic_view"))->isEnabled());
     QCOMPARE(reopened.findChild<QComboBox *>(QStringLiteral("preferred_view_mode"))->currentData().toInt(),
              int(GeneralSettings::EnumPreferredViewMode::Compact));
     page.restoreDefaults();
     QCOMPARE(combo->currentData().toInt(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
     QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::Compact));
+    QVERIFY(!GeneralSettings::globalViewProps());
+    QVERIFY(GeneralSettings::dynamicView());
     page.applySettings();
     QCOMPARE(GeneralSettings::preferredViewMode(), int(GeneralSettings::EnumPreferredViewMode::LastUsed));
     const QString screenshots = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");

@@ -1,17 +1,30 @@
 #include "archiveextractionjob.h"
+#include "dolphin_generalsettings.h"
+#include "settings/viewmodes/generalviewsettingspage.h"
 
+#include <KConfigGroup>
 #include <KFileItem>
 #include <KFileItemListProperties>
+#include <KPasswordDialog>
+#include <KPasswordLineEdit>
+#include <KSharedConfig>
 #include <QAction>
+#include <QCheckBox>
 #include <QDBusConnection>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
+#include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QProcess>
+#include <QPushButton>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 
 class FileManagerProbe : public QObject
 {
@@ -31,6 +44,72 @@ class ArchiveExtractionTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void extractionPreference()
+    {
+        const bool previous = GeneralSettings::useImprovedArchiveExtraction();
+        const auto restore = qScopeGuard([previous]() {
+            GeneralSettings::setUseImprovedArchiveExtraction(previous);
+            GeneralSettings::self()->save();
+        });
+        QTemporaryDir directory;
+        const QUrl url = QUrl::fromLocalFile(directory.path());
+        const KFileItem item(QUrl::fromLocalFile(directory.filePath(QStringLiteral("sample.zip"))), QStringLiteral("application/zip"), 0);
+        const auto verifyMenu = [&](bool improved) {
+            QMenu parent;
+            const auto actions = ArchiveExtractionJob::actions(KFileItemListProperties(KFileItemList{item}), &parent);
+            QCOMPARE(actions.size(), improved ? 2 : 1);
+            QVERIFY(actions.first()->menu());
+            const auto nativeActions = actions.first()->menu()->actions();
+            QCOMPARE(nativeActions.size(), improved ? 2 : 3);
+            int trashActions = 0;
+            for (QAction *action : nativeActions) {
+                trashActions += action->icon().name() == QLatin1String("archive-remove");
+            }
+            QCOMPARE(trashActions, improved ? 0 : 1);
+            QCOMPARE(parent.findChild<QAction *>(QStringLiteral("dolphinplus_extract_and_trash")) != nullptr, improved);
+        };
+        GeneralSettings::setUseImprovedArchiveExtraction(true);
+        GeneralSettings::self()->save();
+        {
+            GeneralViewSettingsPage page(url, nullptr);
+            auto *choice = page.findChild<QCheckBox *>(QStringLiteral("archive_extraction_mode"));
+            QVERIFY(choice);
+            QCOMPARE(choice->text(), QStringLiteral("Use new Improved Extract and Trash option"));
+            QVERIFY(choice->isChecked());
+            QSignalSpy changed(&page, &SettingsPageBase::changed);
+            choice->setChecked(false);
+            QCOMPARE(changed.count(), 1);
+            QVERIFY(GeneralSettings::useImprovedArchiveExtraction());
+            verifyMenu(true);
+            page.applySettings();
+        }
+        GeneralSettings::self()->load();
+        QVERIFY(!GeneralSettings::useImprovedArchiveExtraction());
+        QVERIFY(!KConfigGroup(GeneralSettings::self()->sharedConfig(), QStringLiteral("General")).readEntry("UseImprovedArchiveExtraction", true));
+        verifyMenu(false);
+        {
+            GeneralViewSettingsPage page(url, nullptr);
+            auto *choice = page.findChild<QCheckBox *>(QStringLiteral("archive_extraction_mode"));
+            QVERIFY(choice);
+            QVERIFY(!choice->isChecked());
+            choice->setChecked(true);
+        }
+        QVERIFY(!GeneralSettings::useImprovedArchiveExtraction());
+        verifyMenu(false);
+        {
+            GeneralViewSettingsPage page(url, nullptr);
+            auto *choice = page.findChild<QCheckBox *>(QStringLiteral("archive_extraction_mode"));
+            QVERIFY(choice);
+            page.restoreDefaults();
+            QVERIFY(choice->isChecked());
+            QVERIFY(!GeneralSettings::useImprovedArchiveExtraction());
+            page.applySettings();
+        }
+        GeneralSettings::self()->load();
+        QVERIFY(GeneralSettings::useImprovedArchiveExtraction());
+        verifyMenu(true);
+    }
+
     void compressionDoesNotOpenWindow()
     {
         FileManagerProbe probe;
@@ -175,8 +254,25 @@ private Q_SLOTS:
         QCOMPARE(archive.readAll(), QByteArray("invalid archive"));
     }
 
+    void menuAction_data()
+    {
+        QTest::addColumn<bool>("encrypted");
+        QTest::addColumn<bool>("closeMenu");
+        QTest::addColumn<bool>("closeWindow");
+        QTest::addColumn<bool>("cancelPassword");
+        QTest::newRow("plain") << false << false << false << false;
+        QTest::newRow("encrypted") << true << false << false << false;
+        QTest::newRow("encrypted-menu-closed") << true << true << false << false;
+        QTest::newRow("encrypted-window-closed") << true << true << true << false;
+        QTest::newRow("password-cancelled") << true << true << true << true;
+    }
+
     void menuAction()
     {
+        QFETCH(bool, encrypted);
+        QFETCH(bool, closeMenu);
+        QFETCH(bool, closeWindow);
+        QFETCH(bool, cancelPassword);
         QTemporaryDir directory;
         QFile source(directory.filePath(QStringLiteral("payload.txt")));
         QVERIFY(source.open(QIODevice::WriteOnly));
@@ -184,22 +280,147 @@ private Q_SLOTS:
         source.close();
         const QString archive = directory.filePath(QStringLiteral("sample.zip"));
         QProcess encoder;
-        encoder.start(QStandardPaths::findExecutable(QStringLiteral("bsdtar")),
-                      {QStringLiteral("-cf"), archive, QStringLiteral("--format=zip"), QStringLiteral("-C"), directory.path(), QStringLiteral("payload.txt")});
+        QStringList arguments{QStringLiteral("-cf"), archive, QStringLiteral("--format=zip"), QStringLiteral("-C"), directory.path()};
+        if (encrypted) {
+            arguments << QStringLiteral("--options=zip:encryption=aes256") << QStringLiteral("--passphrase") << QStringLiteral("test-fixture-password");
+        }
+        arguments << QStringLiteral("payload.txt");
+        encoder.start(QStandardPaths::findExecutable(QStringLiteral("bsdtar")), arguments);
         QVERIFY(encoder.waitForFinished(10000));
         QCOMPARE(encoder.exitCode(), 0);
         QVERIFY(source.remove());
         KFileItem item(QUrl::fromLocalFile(archive), QStringLiteral("application/zip"), 0);
-        QMenu parent;
-        const auto actions = ArchiveExtractionJob::actions(KFileItemListProperties(KFileItemList{item}), &parent);
-        QCOMPARE(actions.size(), 1);
+        QPointer<QWidget> window = new QWidget;
+        const auto cleanup = qScopeGuard([&]() {
+            delete window;
+        });
+        auto *parent = new QMenu(window);
+        const auto actions = ArchiveExtractionJob::actions(KFileItemListProperties(KFileItemList{item}), parent);
+        parent->addActions(actions);
+        QCOMPARE(actions.size(), 2);
         QVERIFY(actions.first()->menu());
-        QCOMPARE(actions.first()->menu()->actions().size(), 3);
-        QCOMPARE(actions.first()->menu()->actions().at(1)->objectName(), QStringLiteral("dolphinplus_extract_and_trash"));
-        actions.first()->menu()->actions().at(1)->trigger();
+        QCOMPARE(actions.first()->menu()->actions().size(), 2);
+        for (QAction *action : actions.first()->menu()->actions()) {
+            QVERIFY(action->icon().name() != QLatin1String("archive-remove"));
+        }
+        QAction *customAction = actions.last();
+        QCOMPARE(customAction->objectName(), QStringLiteral("dolphinplus_extract_and_trash"));
+        QCOMPARE(customAction->text(), QStringLiteral("Extract Here and Trash Archive"));
+        QVERIFY(!customAction->menu());
+        QVERIFY(parent->actions().contains(customAction));
+        QVERIFY(!actions.first()->menu()->actions().contains(customAction));
+        bool errorShown = false;
+        bool passwordShown = false;
+        QTimer dismissError;
+        connect(&dismissError, &QTimer::timeout, this, [&]() {
+            if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+                if (auto *passwordDialog = qobject_cast<KPasswordDialog *>(dialog)) {
+                    passwordShown = true;
+                    if (cancelPassword) {
+                        passwordDialog->reject();
+                    } else {
+                        auto *passwordEdit = passwordDialog->findChild<KPasswordLineEdit *>(QStringLiteral("passEdit"));
+                        QVERIFY(passwordEdit);
+                        passwordEdit->lineEdit()->setText(QStringLiteral("test-fixture-password"));
+                        passwordDialog->buttonBox()->button(QDialogButtonBox::Ok)->click();
+                    }
+                    return;
+                }
+                for (const auto *label : dialog->findChildren<QLabel *>()) {
+                    errorShown |= label->text().contains(QStringLiteral("The current archive has not been trashed."));
+                }
+                dialog->accept();
+            }
+        });
+        dismissError.start(10);
+        ArchiveExtractionJob cancelledExtraction({QUrl::fromLocalFile(archive)});
+        cancelledExtraction.setAutoDelete(false);
+        QSignalSpy cancelledResult(&cancelledExtraction, &KJob::result);
+        if (cancelPassword) {
+            cancelledExtraction.start();
+        } else {
+            customAction->trigger();
+        }
+        if (closeMenu) {
+            delete parent;
+        }
+        if (closeWindow) {
+            delete window;
+        }
+        if (cancelPassword) {
+            QTRY_COMPARE_WITH_TIMEOUT(cancelledResult.count(), 1, 10000);
+            QVERIFY(passwordShown);
+            QCOMPARE(cancelledExtraction.error(), KJob::KilledJobError);
+            QVERIFY(QFile::exists(archive));
+            QVERIFY(!QFile::exists(source.fileName()));
+            return;
+        }
         QTRY_VERIFY_WITH_TIMEOUT(!QFile::exists(archive), 10000);
+        QCOMPARE(passwordShown, encrypted);
+        QVERIFY(!errorShown);
         QVERIFY(source.open(QIODevice::ReadOnly));
         QCOMPARE(source.readAll(), QByteArray("contents"));
+    }
+
+    void encryptedRar_data()
+    {
+        QTest::addColumn<bool>("cancelPassword");
+        QTest::addColumn<bool>("wrongPassword");
+        QTest::newRow("success") << false << false;
+        QTest::newRow("wrong-password") << false << true;
+        QTest::newRow("cancel") << true << false;
+    }
+
+    void encryptedRar()
+    {
+        QFETCH(bool, cancelPassword);
+        QFETCH(bool, wrongPassword);
+        QTemporaryDir directory;
+        const QString archive = directory.filePath(QStringLiteral("sample.rar"));
+        QVERIFY(QFile::copy(QString::fromUtf8(ARK_RAR_FIXTURE), archive));
+        int passwordPrompts = 0;
+        QTimer answerPassword;
+        connect(&answerPassword, &QTimer::timeout, this, [&]() {
+            auto *dialog = qobject_cast<KPasswordDialog *>(QApplication::activeModalWidget());
+            if (!dialog) {
+                return;
+            }
+            ++passwordPrompts;
+            if (cancelPassword) {
+                dialog->reject();
+                return;
+            }
+            auto *passwordEdit = dialog->findChild<KPasswordLineEdit *>(QStringLiteral("passEdit"));
+            QVERIFY(passwordEdit);
+            passwordEdit->lineEdit()->setText(wrongPassword ? QStringLiteral("wrong-fixture-password") : QStringLiteral("asdasd"));
+            dialog->buttonBox()->button(QDialogButtonBox::Ok)->click();
+        });
+        answerPassword.start(10);
+        ArchiveExtractionJob job({QUrl::fromLocalFile(archive)});
+        job.setAutoDelete(false);
+        QSignalSpy finished(&job, &KJob::result);
+        job.start();
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY(passwordPrompts > 0);
+        if (cancelPassword || wrongPassword) {
+            QVERIFY(job.error());
+            if (cancelPassword) {
+                QCOMPARE(job.error(), KJob::KilledJobError);
+            }
+            QVERIFY(QFile::exists(archive));
+            QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("A"))));
+            return;
+        }
+        QVERIFY2(!job.error(), qPrintable(job.errorString()));
+        QVERIFY(!QFile::exists(archive));
+        QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("sample"))));
+        for (const QString &folder : {QStringLiteral("A"), QStringLiteral("A/B"), QStringLiteral("A/B/C")}) {
+            for (const QString &name : {QStringLiteral("test1.txt"), QStringLiteral("test2.txt")}) {
+                QFile extracted(directory.filePath(folder + QLatin1Char('/') + name));
+                QVERIFY(extracted.open(QIODevice::ReadOnly));
+                QVERIFY(!extracted.readAll().isEmpty());
+            }
+        }
     }
 
     void rejectedArchives_data()
@@ -207,12 +428,18 @@ private Q_SLOTS:
         QTest::addColumn<QString>("kind");
         QTest::newRow("path-traversal") << QStringLiteral("traversal");
         QTest::newRow("symlink-escape") << QStringLiteral("symlink");
-        QTest::newRow("encrypted") << QStringLiteral("encrypted");
     }
 
     void rejectedArchives()
     {
         QFETCH(QString, kind);
+        QTimer dismissError;
+        connect(&dismissError, &QTimer::timeout, this, []() {
+            if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) {
+                dialog->reject();
+            }
+        });
+        dismissError.start(10);
         QTemporaryDir directory;
         QVERIFY(QDir(directory.path()).mkdir(QStringLiteral("input")));
         QVERIFY(QDir(directory.path()).mkdir(QStringLiteral("outside")));

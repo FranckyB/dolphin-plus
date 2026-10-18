@@ -5,7 +5,6 @@
 #include <QEventLoopLocker>
 #include <QFileInfo>
 #include <QPointer>
-#include <QProcess>
 #include <QTemporaryDir>
 #include <QUrl>
 
@@ -38,9 +37,9 @@ private:
     QList<QUrl> m_archives;
     QFileInfo m_archive;
     std::unique_ptr<QTemporaryDir> m_staging;
-    QProcess m_process;
+    QPointer<KJob> m_extractionJob;
     QPointer<KJob> m_trashJob;
-    QByteArray m_errors;
     QString m_destination;
     bool m_cancelled = false;
+    bool m_incompleteExtraction = false;
 };

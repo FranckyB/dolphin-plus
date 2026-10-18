@@ -1,4 +1,9 @@
 #include "archiveextractionjob.h"
+#include "dolphin_generalsettings.h"
+
+#include <archive_kerfuffle.h>
+#include <jobs.h>
+#include <queries.h>
 
 #include <KAbstractFileItemActionPlugin>
 #include <KConfigGroup>
@@ -18,41 +23,14 @@
 #include <QDir>
 #include <QMenu>
 #include <QMimeDatabase>
+#include <QProcess>
 #include <QStandardPaths>
 #include <QTimer>
-
-#ifdef Q_OS_UNIX
-#include <unistd.h>
-#endif
 
 ArchiveExtractionJob::ArchiveExtractionJob(const QList<QUrl> &archives)
     : m_archives(archives)
 {
     setCapabilities(KJob::Killable);
-#ifdef Q_OS_UNIX
-    m_process.setChildProcessModifier([]() {
-        setsid();
-    });
-#endif
-    connect(&m_process, &QProcess::readyReadStandardError, this, [this]() {
-        m_errors.append(m_process.readAllStandardError());
-        m_errors = m_errors.right(65536);
-    });
-    connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart && !m_cancelled) {
-            fail(m_process.errorString());
-        }
-    });
-    connect(&m_process, &QProcess::finished, this, [this](int status, QProcess::ExitStatus exitStatus) {
-        if (m_cancelled) {
-            return;
-        }
-        if (status != 0 || exitStatus != QProcess::NormalExit) {
-            fail(i18n("Extraction failed. Try Ark's Extract to action for unsupported or password-protected archives.\n%1", QString::fromLocal8Bit(m_errors)));
-            return;
-        }
-        publish();
-    });
 }
 
 void ArchiveExtractionJob::start()
@@ -73,14 +51,9 @@ void ArchiveExtractionJob::extractNext()
     m_archive = QFileInfo(url.toLocalFile());
     m_staging.reset();
     m_destination.clear();
-    m_errors.clear();
+    m_incompleteExtraction = false;
     if (!url.isLocalFile() || !m_archive.isFile() || m_archive.isSymLink()) {
         fail(i18n("Select a local archive file, not a symbolic link."));
-        return;
-    }
-    const QString program = QStandardPaths::findExecutable(QStringLiteral("bsdtar"));
-    if (program.isEmpty()) {
-        fail(i18n("Extract and trash requires bsdtar from libarchive. The archive has not been changed."));
         return;
     }
     m_staging = std::make_unique<QTemporaryDir>(m_archive.absolutePath() + QStringLiteral("/.dolphinplus-extract-XXXXXX"));
@@ -93,14 +66,37 @@ void ArchiveExtractionJob::extractNext()
     if (m_cancelled) {
         return;
     }
-    m_process.start(program,
-                    {QStringLiteral("-xf"),
-                     m_archive.absoluteFilePath(),
-                     QStringLiteral("-C"),
-                     m_staging->path(),
-                     QStringLiteral("--no-same-owner"),
-                     QStringLiteral("--no-same-permissions")});
-    m_process.closeWriteChannel();
+    auto *extraction = Kerfuffle::Archive::batchExtract(m_archive.absoluteFilePath(), m_staging->path(), false, true, this);
+    m_extractionJob = extraction;
+    connect(extraction, &Kerfuffle::Job::userQuery, this, [this](Kerfuffle::Query *query) {
+        if (dynamic_cast<Kerfuffle::ContinueExtractionQuery *>(query) || dynamic_cast<Kerfuffle::LoadCorruptQuery *>(query)) {
+            m_incompleteExtraction = true;
+        }
+        query->execute();
+    });
+    connect(extraction, &KJob::percentChanged, this, [this](KJob *, unsigned long percent) {
+        setPercent(percent);
+    });
+    connect(extraction, &KJob::result, this, [this](KJob *finished) {
+        m_extractionJob = nullptr;
+        if (m_cancelled) {
+            return;
+        }
+        if (finished->error()) {
+            if (finished->error() == KJob::KilledJobError) {
+                kill(KJob::EmitResult);
+            } else {
+                fail(finished->errorString());
+            }
+            return;
+        }
+        if (m_incompleteExtraction) {
+            fail(i18n("Ark reported damaged or incomplete archive contents."));
+            return;
+        }
+        publish();
+    });
+    extraction->start();
 }
 
 bool ArchiveExtractionJob::archiveUnchanged() const
@@ -178,7 +174,9 @@ bool ArchiveExtractionJob::doKill()
     if (m_trashJob) {
         m_trashJob->kill();
     }
-    m_process.kill();
+    if (m_extractionJob) {
+        m_extractionJob->kill();
+    }
     return true;
 }
 
@@ -201,8 +199,12 @@ QList<QAction *> ArchiveExtractionJob::actions(const KFileItemListProperties &pr
     if (!plugin) {
         return {};
     }
-    const QList<QAction *> result = plugin->actions(properties, parent);
-    for (QAction *menuAction : result) {
+    const QList<QAction *> arkActions = plugin->actions(properties, parent);
+    if (!GeneralSettings::useImprovedArchiveExtraction()) {
+        return arkActions;
+    }
+    QList<QAction *> result = arkActions;
+    for (QAction *menuAction : arkActions) {
         if (!menuAction->menu()) {
             continue;
         }
@@ -210,6 +212,7 @@ QList<QAction *> ArchiveExtractionJob::actions(const KFileItemListProperties &pr
             if (original->icon().name() != QLatin1String("archive-remove")) {
                 continue;
             }
+            menuAction->menu()->removeAction(original);
             QList<QUrl> archives;
             for (const KFileItem &item : properties.items()) {
                 QWidget temporaryParent;
@@ -217,17 +220,29 @@ QList<QAction *> ArchiveExtractionJob::actions(const KFileItemListProperties &pr
                     archives.append(item.url());
                 }
             }
-            auto *replacement = new QAction(original->icon(), original->text(), parent);
+            auto *replacement = new QAction(original->icon(), i18nc("@action:inmenu", "Extract Here and Trash Archive"), parent);
             replacement->setObjectName(QStringLiteral("dolphinplus_extract_and_trash"));
-            connect(replacement, &QAction::triggered, qApp, [archives, owner = QPointer<QWidget>(parent)]() {
+            QPointer<QWidget> owner = parent;
+            while (owner && qobject_cast<QMenu *>(owner.data())) {
+                owner = owner->parentWidget();
+            }
+            if (owner) {
+                owner = owner->window();
+            }
+            connect(replacement, &QAction::triggered, qApp, [archives, owner]() {
                 auto *job = new ArchiveExtractionJob(archives);
-                job->setUiDelegate(KIO::createDefaultJobUiDelegate(KJobUiDelegate::AutoHandlingEnabled, owner));
+                job->setUiDelegate(KIO::createDefaultJobUiDelegate(KJobUiDelegate::AutoHandlingDisabled, owner));
+                connect(job, &KJob::result, qApp, [owner](KJob *finished) {
+                    if (finished->error() && finished->error() != KJob::KilledJobError) {
+                        QTimer::singleShot(0, qApp, [owner, message = finished->errorString()]() {
+                            KMessageBox::error(owner, message);
+                        });
+                    }
+                });
                 KIO::getJobTracker()->registerJob(job);
                 job->start();
             });
-            menuAction->menu()->insertAction(original, replacement);
-            menuAction->menu()->removeAction(original);
-            delete original;
+            result.append(replacement);
         }
     }
     return result;

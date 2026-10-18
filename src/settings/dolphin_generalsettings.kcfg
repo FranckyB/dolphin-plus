@@ -105,6 +105,10 @@
             <label>Browse through archives</label>
             <default>false</default>
         </entry>
+        <entry name="UseImprovedArchiveExtraction" type="Bool">
+            <label>Use new Improved Extract and Trash option</label>
+            <default>true</default>
+        </entry>
         <entry name="KeyboardSearchMatchAnywhere" type="Bool">
             <label>Match any part of filenames when typing to find</label>
             <default>true</default>

@@ -289,6 +289,28 @@ target_link_libraries(dolphinpart
 
 add_library(dolphinstatic STATIC)
 
+find_library(ARK_KERFUFFLE_LIBRARY NAMES kerfuffle libkerfuffle.so.26 REQUIRED)
+file(REAL_PATH "${ARK_KERFUFFLE_LIBRARY}" ARK_KERFUFFLE_REALPATH)
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+$" ARK_LIBRARY_VERSION "${ARK_KERFUFFLE_REALPATH}")
+if(NOT ARK_LIBRARY_VERSION)
+    message(FATAL_ERROR "Cannot determine the installed Ark library version: ${ARK_KERFUFFLE_REALPATH}")
+endif()
+include(FetchContent)
+FetchContent_Declare(dolphinplus_ark_headers
+    URL "https://download.kde.org/stable/release-service/${ARK_LIBRARY_VERSION}/src/ark-${ARK_LIBRARY_VERSION}.tar.xz"
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_SUBDIR dolphinplus-headers-only
+)
+FetchContent_MakeAvailable(dolphinplus_ark_headers)
+add_library(dolphinplus_ark SHARED IMPORTED)
+set_target_properties(dolphinplus_ark PROPERTIES IMPORTED_LOCATION "${ARK_KERFUFFLE_REALPATH}")
+generate_export_header(dolphinplus_ark BASE_NAME kerfuffle
+    EXPORT_FILE_NAME "${CMAKE_CURRENT_BINARY_DIR}/ark-headers/kerfuffle_export.h")
+target_include_directories(dolphinstatic PRIVATE
+    "${dolphinplus_ark_headers_SOURCE_DIR}/kerfuffle"
+    "${CMAKE_CURRENT_BINARY_DIR}/ark-headers")
+target_link_libraries(dolphinstatic dolphinplus_ark)
+
 target_sources(dolphinstatic PRIVATE
     archiveextractionjob.cpp
     archiveextractionjob.h

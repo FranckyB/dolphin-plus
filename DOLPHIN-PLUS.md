@@ -269,11 +269,15 @@ shortcut activation, cancellation, selection, and undo.
 
 ### Extract and Trash
 
-For extraction, Dolphin Plus replaces only Ark's **Extract and trash archive** context-menu
-action. **Extract here** and **Extract to** remain Ark actions, and stock
-Dolphin's menu is unchanged. Ark still supplies archive recognition and the
-menu; the replacement uses `bsdtar` from libarchive for extraction because
-Ark's batch CLI exit status does not reliably distinguish extraction errors.
+The top-level **Extract Here and Trash Archive** context-menu action uses
+Ark's installed extraction library and native password dialogs. In
+**Configure Dolphin Plus > View > General**, **Use new Improved Extract and Trash option**
+is checked by default. Uncheck it to use Ark's original **Extract and Trash Archive**.
+Only the selected version is shown: the improved action at the top level, or
+the original action in Ark's submenu. Changes apply to the next context menu.
+Ark's **Extract here** and **Extract to** actions remain available in either
+mode. Stock Dolphin is unchanged. The custom action
+checks Ark's actual extraction-job result, not its command-line exit status.
 
 Each selected local archive is processed separately, beside its original
 location, in a private `.dolphinplus-extract-*` staging directory. After a
@@ -294,13 +298,20 @@ prevent it from being trashed.
 The native job tracker provides cancellation. Cancelled or failed extractions
 may leave their hidden staging directory for recovery; show hidden files to
 inspect it. Trashing failures retain the successfully extracted output.
-No automatic retry through Ark is made, since that could duplicate partially
-extracted data. Password-protected, multi-volume, or otherwise unsupported
-archives should use Ark's **Extract to** action instead; backend support is
-not identical to Ark's plugin support. Symbolic-link archive inputs are not
-accepted by the replacement action.
+Archive formats, encryption, and multi-volume reading use the installed Ark
+plugins and their backend tools. Wrong passwords and cancelled password dialogs
+leave the archive in place. Damaged or incomplete extraction reports also prevent
+trashing. Symbolic-link archive inputs are not accepted by the custom action.
 
-`archiveextractiontest` checks actual menu activation, ZIP and tar.gz layouts,
+Building requires Ark's installed `libkerfuffle`. CMake obtains matching upstream
+headers from KDE's release archive; this requires network access on the first
+configure for an Ark version. No Ark sources are built or installed over the
+system application. Rebuild Dolphin Plus after upgrading Ark, because this
+integration uses Ark's version-specific library API.
+
+`archiveextractiontest` checks preference persistence, defaults, cancellation,
+exclusive menu visibility, actual menu activation, encrypted RAR extraction,
+wrong-password preservation, password cancellation, ZIP and tar.gz layouts,
 hidden entries, collisions, cancellation, corrupt and encrypted archives,
 and path-traversal/symlink containment. Run it offscreen with disposable
 HOME/XDG paths and a private D-Bus session. Set TMPDIR to that disposable HOME
@@ -393,16 +404,29 @@ Compact views** in **Configure Dolphin Plus > View > General** to hide it.
 This is the fork-specific `General/ShowSortBar` setting in `dolphinplusrc`.
 Details view retains its existing resizable column header either way.
 
-### Preferred View
+### Display Style
 
-**Configure Dolphin Plus > View > General > Preferred view** offers **Last Used**
-(the default), **Icons**, **Compact**, and **Details**. Last Used keeps Dolphin's
-existing common/per-folder display-style behavior and optional media detection.
-An explicit choice applies whenever you browse to another folder or open a new
-tab or window, even if that location previously used another mode. Manual mode
-changes remain available until navigation; reloading or switching between already
-open tabs does not reset them. Explicit preferences override automatic media view
-switching. The choice is saved as `General/PreferredViewMode` in `dolphinplusrc`.
+**Configure Dolphin Plus > View > General > Display style** offers **Last Used**
+(the default), **Icons**, **Compact**, and **Details**. This replaces the separate
+common-style radio buttons and preferred-view control.
+
+**Remember display style for each folder** uses a folder's saved Dolphin Plus
+style when available, otherwise the selected Display style. Turning it off
+ignores per-folder styles and applies the selected mode when navigating or
+opening a tab or window. Last Used retains the common last-used mode as the
+fallback. Merely opening an unconfigured folder does not save that fallback as
+a folder preference. Existing stock Dolphin metadata remains separate.
+
+**Use icons view mode for locations which mostly contain media files** works
+with any Display style and either remembering setting. Dolphin's existing media
+detection can switch a folder to Icons even when Details or Compact is selected.
+Its existing remembered manual overrides remain respected; with remembering
+off, detection can run again on reload. Switching between already-open tabs
+does not reapply the default mode.
+
+The existing `General/PreferredViewMode`, `General/GlobalViewProps` (the inverse
+of the remember checkbox), and `General/DynamicView` settings in `dolphinplusrc`
+are preserved; no migration is needed.
 
 ### Integrated Image Viewer
 

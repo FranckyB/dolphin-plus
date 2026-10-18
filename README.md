@@ -30,8 +30,10 @@ Install your distribution's Dolphin/Qt 6/KDE Frameworks development dependencies
 first, including a C++ compiler, CMake, Ninja, Extra CMake Modules, and the
 `desktop-file-utils` tools. CMake checks the required library versions and reports
 missing packages. The script also needs Bash, `pgrep`, and `flock` (typically
-provided by procps/procps-ng and util-linux). `--test` additionally requires Ark,
-`bsdtar` from libarchive, and `dbus-run-session`; the coexistence check runs when
+provided by procps/procps-ng and util-linux). Ark and its `libkerfuffle` library
+are required; CMake downloads matching Ark headers on first configure. Rebuild
+Dolphin Plus after Ark upgrades. `--test` additionally requires `bsdtar` from
+libarchive and `dbus-run-session`; the coexistence check runs when
 stock Dolphin is installed. Gwenview supplies the image viewer, and FFmpeg enables
 video folder covers.
 

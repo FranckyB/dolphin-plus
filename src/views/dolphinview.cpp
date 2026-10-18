@@ -2603,7 +2603,7 @@ void DolphinView::loadDirectory(const QUrl &url, bool reload)
 void DolphinView::applyViewProperties(bool usePreferredMode)
 {
     ViewProperties props(viewPropertiesUrl());
-    if (usePreferredMode) {
+    if (usePreferredMode && GeneralSettings::globalViewProps()) {
         switch (GeneralSettings::preferredViewMode()) {
         case GeneralSettings::EnumPreferredViewMode::Icons:
             props.setViewMode(IconsView);
@@ -2787,7 +2787,7 @@ void DolphinView::applyDynamicView()
      * - the current view mode is already Icon View
      * - dynamic view has previously changed the view mode
      */
-    if (!GeneralSettings::dynamicView() || m_mode == IconsView || GeneralSettings::preferredViewMode() != GeneralSettings::EnumPreferredViewMode::LastUsed) {
+    if (!GeneralSettings::dynamicView() || m_mode == IconsView) {
         return;
     }
 

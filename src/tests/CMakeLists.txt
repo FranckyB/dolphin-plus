@@ -8,6 +8,8 @@ find_package(Qt6Test CONFIG REQUIRED)
 include(ECMAddTests)
 
 ecm_add_test(archiveextractiontest.cpp LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)
+target_compile_definitions(archiveextractiontest PRIVATE
+    ARK_RAR_FIXTURE="${dolphinplus_ark_headers_SOURCE_DIR}/autotests/plugins/cliunarchiverplugin/data/encrypted_entries.rar")
 
 ecm_add_test(foldercovertest.cpp LINK_LIBRARIES dolphinprivate dolphinstatic Qt6::Test)
 

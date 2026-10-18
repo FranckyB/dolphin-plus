@@ -14,7 +14,6 @@
 #include <KLocalizedString>
 
 #include <QApplication>
-#include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFontDatabase>
@@ -31,34 +30,6 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     QFormLayout *topLayout = new QFormLayout(this);
     topLayout->setFormAlignment(Qt::AlignHCenter);
 
-    // Display style
-    m_globalViewProps = new QRadioButton(i18nc("@option:radio", "Use common display style for all folders"));
-    // i18n: The information in this sentence contradicts the preceding sentence. That's what the word "still" is communicating.
-    // The previous sentence is "Use common display style for all folders".
-    QLabel *globalViewPropsLabel = new QLabel(i18nc("@info", "Some special views like search, recent files, or trash will still use a custom display style."));
-    globalViewPropsLabel->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
-    globalViewPropsLabel->setWordWrap(true);
-    globalViewPropsLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-
-    m_localViewProps = new QRadioButton(i18nc("@option:radio", "Remember display style for each folder"));
-    QLabel *localViewPropsLabel = new QLabel(i18nc("@info",
-                                                   "Dolphin will add file system metadata to folders you change view properties for. If that is not possible, "
-                                                   "a hidden .directory file is created instead."));
-    localViewPropsLabel->setFont(QFontDatabase::systemFont(QFontDatabase::SmallestReadableFont));
-    localViewPropsLabel->setWordWrap(true);
-    localViewPropsLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-
-    m_dynamicView = new QCheckBox(i18nc("option:check", "Use icons view mode for locations which mostly contain media files"));
-
-    QButtonGroup *viewGroup = new QButtonGroup(this);
-    viewGroup->addButton(m_globalViewProps);
-    viewGroup->addButton(m_localViewProps);
-    topLayout->addRow(i18nc("@title:group", "Display style: "), m_globalViewProps);
-    topLayout->addRow(QString(), globalViewPropsLabel);
-    topLayout->addRow(QString(), m_localViewProps);
-    topLayout->addRow(QString(), localViewPropsLabel);
-    topLayout->addRow(QString(), m_dynamicView);
-
     m_preferredViewMode = new QComboBox();
     m_preferredViewMode->setObjectName(QStringLiteral("preferred_view_mode"));
     m_preferredViewMode->addItem(i18nc("@item:inlistbox", "Last Used"), GeneralSettings::EnumPreferredViewMode::LastUsed);
@@ -71,7 +42,15 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     m_preferredViewMode->addItem(QIcon::fromTheme(QStringLiteral("view-list-tree")),
                                  i18nc("@item:inlistbox", "Details"),
                                  GeneralSettings::EnumPreferredViewMode::Details);
-    topLayout->addRow(i18nc("@label:listbox", "Preferred view:"), m_preferredViewMode);
+    topLayout->addRow(i18nc("@label:listbox", "Display style:"), m_preferredViewMode);
+
+    m_localViewProps = new QCheckBox(i18nc("@option:check", "Remember display style for each folder"));
+    m_localViewProps->setObjectName(QStringLiteral("remember_display_style"));
+    topLayout->addRow(QString(), m_localViewProps);
+
+    m_dynamicView = new QCheckBox(i18nc("option:check", "Use icons view mode for locations which mostly contain media files"));
+    m_dynamicView->setObjectName(QStringLiteral("dynamic_view"));
+    topLayout->addRow(QString(), m_dynamicView);
 
     topLayout->addItem(new QSpacerItem(0, Dolphin::VERTICAL_SPACER_HEIGHT, QSizePolicy::Fixed, QSizePolicy::Fixed));
 
@@ -83,6 +62,10 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     m_showSortBar = new QCheckBox(i18nc("@option:check", "Show sorting controls in Icons and Compact views"));
     m_showSortBar->setObjectName(QStringLiteral("show_sort_bar"));
     topLayout->addRow(QString(), m_showSortBar);
+
+    m_archiveExtractionMode = new QCheckBox(i18nc("@option:check", "Use new Improved Extract and Trash option"));
+    m_archiveExtractionMode->setObjectName(QStringLiteral("archive_extraction_mode"));
+    topLayout->addRow(QString(), m_archiveExtractionMode);
 
     topLayout->addItem(new QSpacerItem(0, Dolphin::VERTICAL_SPACER_HEIGHT, QSizePolicy::Fixed, QSizePolicy::Fixed));
 
@@ -199,20 +182,14 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     // END double click view background
     // --------------------- //
 
-    // make sure the labels don't expand too much
-    for (auto label : {localViewPropsLabel, globalViewPropsLabel}) {
-        label->setSizePolicy(QSizePolicy(QSizePolicy::Fixed, QSizePolicy::Minimum));
-        label->setMinimumWidth(m_dynamicView->width());
-    }
-
     loadSettings();
 
-    connect(m_localViewProps, &QRadioButton::toggled, this, &GeneralViewSettingsPage::changed);
-    connect(m_globalViewProps, &QRadioButton::toggled, this, &GeneralViewSettingsPage::changed);
+    connect(m_localViewProps, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
 
     connect(m_openArchivesAsFolder, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
     connect(m_autoExpandFolders, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
     connect(m_showSortBar, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
+    connect(m_archiveExtractionMode, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
 #if HAVE_BALOO
     connect(m_showToolTips, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
 #endif
@@ -221,9 +198,6 @@ GeneralViewSettingsPage::GeneralViewSettingsPage(const QUrl &url, QWidget *paren
     connect(m_hideXtrashFiles, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
     connect(m_dynamicView, &QCheckBox::toggled, this, &GeneralViewSettingsPage::changed);
     connect(m_preferredViewMode, &QComboBox::currentIndexChanged, this, &GeneralViewSettingsPage::changed);
-    connect(m_preferredViewMode, &QComboBox::currentIndexChanged, this, [this]() {
-        m_dynamicView->setEnabled(m_preferredViewMode->currentData().toInt() == GeneralSettings::EnumPreferredViewMode::LastUsed);
-    });
     connect(m_doubleClickViewCustomAction, &QLineEdit::textChanged, this, &GeneralViewSettingsPage::changed);
     connect(m_doubleClickViewComboBox, qOverload<int>(&QComboBox::currentIndexChanged), this, &GeneralViewSettingsPage::changed);
     connect(m_doubleClickViewComboBox, qOverload<int>(&QComboBox::currentIndexChanged), this, &GeneralViewSettingsPage::updateCustomActionVisibility);
@@ -235,13 +209,14 @@ void GeneralViewSettingsPage::applySettings()
 {
     GeneralSettings *settings = GeneralSettings::self();
     ViewProperties props(m_url); // read current view properties
-    const bool useGlobalViewProps = m_globalViewProps->isChecked();
+    const bool useGlobalViewProps = !m_localViewProps->isChecked();
     settings->setGlobalViewProps(useGlobalViewProps);
 #if HAVE_BALOO
     settings->setShowToolTips(m_showToolTips->isChecked());
 #endif
     settings->setShowSelectionToggle(m_showSelectionToggle->isChecked());
     settings->setShowSortBar(m_showSortBar->isChecked());
+    settings->setUseImprovedArchiveExtraction(m_archiveExtractionMode->isChecked());
     settings->setRenameInline(m_renameInline->isChecked());
     settings->setHideXTrashFile(m_hideXtrashFiles->isChecked());
     settings->setDynamicView(m_dynamicView->isChecked());
@@ -279,14 +254,13 @@ void GeneralViewSettingsPage::loadSettings()
 #endif
     m_showSelectionToggle->setChecked(GeneralSettings::showSelectionToggle());
     m_showSortBar->setChecked(GeneralSettings::showSortBar());
+    m_archiveExtractionMode->setChecked(GeneralSettings::useImprovedArchiveExtraction());
     m_renameInline->setChecked(GeneralSettings::renameInline());
     m_hideXtrashFiles->setChecked(GeneralSettings::hideXTrashFile());
     m_dynamicView->setChecked(GeneralSettings::dynamicView());
     m_preferredViewMode->setCurrentIndex(m_preferredViewMode->findData(GeneralSettings::preferredViewMode()));
-    m_dynamicView->setEnabled(GeneralSettings::preferredViewMode() == GeneralSettings::EnumPreferredViewMode::LastUsed);
 
     m_localViewProps->setChecked(!useGlobalViewProps);
-    m_globalViewProps->setChecked(useGlobalViewProps);
     int index = m_doubleClickViewComboBox->findData(GeneralSettings::doubleClickViewAction());
     m_doubleClickViewComboBox->setCurrentIndex((index == -1) ? 0 : index);
     m_doubleClickViewCustomAction->setText(GeneralSettings::doubleClickViewCustomAction());
