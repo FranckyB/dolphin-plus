@@ -36,11 +36,13 @@
 #include <KFileItem>
 #include <KIO/ListJob>
 
+#include <KMessageWidget>
 #include <QAccessible>
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
+#include <QDialogButtonBox>
 #include <QDomDocument>
 #include <QFileSystemWatcher>
 #include <QGraphicsScene>
@@ -52,6 +54,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QPixmap>
+#include <QPushButton>
 #include <QScopeGuard>
 #include <QScopedPointer>
 #include <QScrollArea>
@@ -602,6 +605,67 @@ void DolphinMainWindowTest::testGroupFiles()
     QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("file.txt"))));
     QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("folder"))));
     QTRY_COMPARE(view->selectedItems().urlList(), QList<QUrl>{QUrl::fromLocalFile(directory.filePath(QStringLiteral("Grouped")))});
+    directory.createFile(QStringLiteral("more.txt"));
+    QTRY_COMPARE(view->itemsCount(), 2);
+    const QUrl more = QUrl::fromLocalFile(directory.filePath(QStringLiteral("more.txt")));
+    view->forceUrlsSelection(more, {more});
+    view->updateViewState();
+    QTRY_VERIFY(action->isEnabled());
+    action->trigger();
+    QTRY_VERIFY(QApplication::activeModalWidget());
+    auto *dialog = QApplication::activeModalWidget();
+    auto *name = dialog->findChild<QLineEdit *>();
+    auto *message = dialog->findChild<KMessageWidget *>();
+    auto *buttons = dialog->findChild<QDialogButtonBox *>();
+    QVERIFY(name);
+    QVERIFY(message);
+    QVERIFY(buttons);
+    auto *accept = buttons->button(QDialogButtonBox::Ok);
+    QVERIFY(accept);
+    name->setText(QStringLiteral("more.txt"));
+    QTRY_VERIFY(message->isVisible());
+    QTRY_COMPARE(message->messageType(), KMessageWidget::Error);
+    QTRY_VERIFY(!accept->isEnabled());
+    name->setText(QStringLiteral("Grouped"));
+    QTRY_COMPARE(message->messageType(), KMessageWidget::Information);
+    QVERIFY(message->isVisible());
+    QTRY_VERIFY(!message->isShowAnimationRunning());
+    QVERIFY(message->text().contains(QStringLiteral("already exists")));
+    QTRY_VERIFY(accept->isEnabled());
+    QVERIFY(QFile::exists(more.toLocalFile()));
+    const QString screenshots = qEnvironmentVariable("DOLPHINPLUS_TEST_SCREENSHOT_DIR");
+    if (!screenshots.isEmpty()) {
+        QVERIFY(dialog->grab().save(QDir(screenshots).filePath(QStringLiteral("group-existing-folder.png"))));
+    }
+    accept->click();
+    QTRY_VERIFY(!QApplication::activeModalWidget());
+    QTRY_VERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/more.txt"))));
+    QVERIFY(!QFile::exists(more.toLocalFile()));
+    QVERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/file.txt"))));
+    QVERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/folder/child.txt"))));
+    QTRY_COMPARE(view->itemsCount(), 1);
+    QTRY_VERIFY(view->selectedItems().isEmpty());
+    QCOMPARE(view->url(), directory.url());
+    auto *undo = m_mainWindow->actionCollection()->action(QStringLiteral("edit_undo"));
+    QVERIFY(undo);
+    QTRY_VERIFY(undo->isEnabled());
+    undo->trigger();
+    QTRY_VERIFY(QFile::exists(more.toLocalFile()));
+    QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("Grouped/more.txt"))));
+    QVERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/file.txt"))));
+    QVERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/folder/child.txt"))));
+    QTRY_COMPARE(view->itemsCount(), 2);
+    view->forceUrlsSelection(more, {more});
+    view->updateViewState();
+    QTRY_VERIFY(action->isEnabled());
+    QVERIFY(createDirectory(action, QStringLiteral("Grouped")));
+    QTRY_VERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/more.txt"))));
+    QTRY_COMPARE(view->itemsCount(), 1);
+    QTRY_VERIFY(view->selectedItems().isEmpty());
+    QCOMPARE(view->url(), directory.url());
+    const QUrl groupUrl = QUrl::fromLocalFile(directory.filePath(QStringLiteral("Grouped")));
+    view->forceUrlsSelection(groupUrl, {groupUrl});
+    view->updateViewState();
     QTRY_VERIFY(action->isEnabled());
     action->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_G));
     m_mainWindow->QWidget::activateWindow();
@@ -617,12 +681,19 @@ void DolphinMainWindowTest::testGroupFiles()
     QVERIFY(createDirectory(action, QStringLiteral("Outer")));
     QTRY_VERIFY(QFile::exists(directory.filePath(QStringLiteral("Outer/Grouped/folder/child.txt"))));
     QTRY_COMPARE(view->selectedItems().urlList(), QList<QUrl>{QUrl::fromLocalFile(directory.filePath(QStringLiteral("Outer")))});
-    auto *undo = m_mainWindow->actionCollection()->action(QStringLiteral("edit_undo"));
-    QVERIFY(undo);
     QTRY_VERIFY(undo->isEnabled());
     undo->trigger();
     QTRY_VERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/folder/child.txt"))));
     QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("Outer/Grouped"))));
+    const QUrl grouped = QUrl::fromLocalFile(directory.filePath(QStringLiteral("Grouped")));
+    view->forceUrlsSelection(grouped, {grouped});
+    view->updateViewState();
+    QTRY_VERIFY(action->isEnabled());
+    QVERIFY(createDirectory(action, QStringLiteral("Grouped")));
+    QTRY_VERIFY(!m_mainWindow->findChild<KNewFileMenu *>(QStringLiteral("group_files_menu")));
+    QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("Grouped/Grouped"))));
+    QVERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/file.txt"))));
+    QVERIFY(QFile::exists(directory.filePath(QStringLiteral("Grouped/more.txt"))));
 }
 
 void DolphinMainWindowTest::testCreateSubdirectory()

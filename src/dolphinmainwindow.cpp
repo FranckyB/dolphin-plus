@@ -868,26 +868,32 @@ void DolphinMainWindow::groupFiles()
     menu->setObjectName(QStringLiteral("group_files_menu"));
     menu->setWindowTitle(i18nc("@title:window", "Group Files"));
     menu->setWorkingDirectory(parentUrl);
-    menu->setSelectDirWhenAlreadyExist(false);
+    menu->setSelectDirWhenAlreadyExist(true);
     connect(menu, &KNewFileMenu::directoryCreationRejected, menu, &QObject::deleteLater);
     connect(menu, &QObject::destroyed, this, &DolphinMainWindow::updateFileAndEditActions);
-    connect(menu, &KNewFileMenu::directoryCreated, this, [this, menu, urls, view, parentUrl](const QUrl &destination) {
+    const auto moveToFolder = [this, menu, urls, view, parentUrl](const QUrl &destination, bool created) {
         if (std::any_of(urls.cbegin(), urls.cend(), [&destination](const QUrl &source) {
                 return source.matches(destination, QUrl::StripTrailingSlash) || source.isParentOf(destination);
             })) {
-            showErrorMessage(i18n("The new folder cannot be inside one of the selected folders. No selected items were moved."));
+            showErrorMessage(i18n("The destination folder cannot be one of the selected folders or inside one of them. No selected items were moved."));
             menu->deleteLater();
             return;
         }
         auto *job = KIO::move(urls, destination);
         KJobWidgets::setWindow(job, this);
         KIO::FileUndoManager::self()->recordCopyJob(job);
-        connect(job, &KJob::result, job, [view, parentUrl, destination](KJob *result) {
-            if (!result->error() && view && view->url().matches(parentUrl, QUrl::StripTrailingSlash)) {
+        connect(job, &KJob::result, job, [view, parentUrl, destination, created](KJob *result) {
+            if (created && !result->error() && view && view->url().matches(parentUrl, QUrl::StripTrailingSlash)) {
                 view->selectAndRevealUrl(destination);
             }
         });
         menu->deleteLater();
+    };
+    connect(menu, &KNewFileMenu::directoryCreated, this, [moveToFolder](const QUrl &destination) {
+        moveToFolder(destination, true);
+    });
+    connect(menu, &KNewFileMenu::selectExistingDir, this, [moveToFolder](const QUrl &destination) {
+        moveToFolder(destination, false);
     });
     updateFileAndEditActions();
     menu->createDirectory();

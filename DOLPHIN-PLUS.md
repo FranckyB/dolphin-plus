@@ -240,17 +240,24 @@ been verified by these offscreen tests.
 ### Group Files
 
 **Edit > Group Files** and the selected-item context menu open a folder-name
-dialog, create that folder, and move the selected files and folders into it.
+dialog and move the selected files and folders into the named folder, creating
+it if needed. If that folder already exists, the dialog shows a non-blocking
+notice and keeps **OK** enabled. This lets you add further selections to the
+same group in separate passes. An existing file is not a valid destination.
 A single selected folder is supported too. Assign a shortcut to **Group Files**
 in **Configure Keyboard Shortcuts**; no default binding is reserved.
 
 The action uses KDE's native creation dialog and undoable KIO move operation.
-It snapshots the selection when invoked, supports cancellation, and selects
-the resulting folder in the originating view. It is enabled for movable items
+It snapshots the selection when invoked and supports cancellation. Newly created
+group folders are selected and revealed in the originating view. Adding files
+to an existing group does not select or reveal the destination, so the view
+stays where you are working. It is enabled for movable items
 directly in the current writable folder, not mixed-parent search results or
-descendants selected through an expanded folder. Existing-folder validation
-and move errors use native KDE handling. Undo reverses the move; the newly
-created empty folder may remain, as with the native operation.
+descendants selected through an expanded folder. A selected folder cannot be
+its own destination or contain the destination. Name collisions and move errors
+use native KDE handling. Undo reverses the latest move, leaving earlier group
+contents intact; a newly created empty folder may remain, as with the native
+operation.
 
 ### Compression Without Extra Windows
 
